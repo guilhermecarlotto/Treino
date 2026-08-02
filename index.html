@@ -43,9 +43,10 @@ button:active{opacity:.7}
 .card-tap h3{margin:0 0 3px;font-size:16px}
 .card-tap p{margin:0;font-size:12.5px;color:var(--dim)}
 .chev{color:var(--dim);font-size:20px}
-input,select{font-family:inherit;font-size:16px;background:var(--surface2);
+input,select,textarea{font-family:inherit;font-size:16px;background:var(--surface2);
   border:1px solid var(--line);border-radius:9px;color:var(--txt);padding:11px;width:100%}
-input:focus,select:focus{outline:none;border-color:var(--accent)}
+textarea{resize:vertical;line-height:1.4}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:600;
   text-transform:uppercase;letter-spacing:.5px}
 .field{margin-bottom:12px}
@@ -258,6 +259,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .mod .mi2{font-size:19px;line-height:1}
 .mod.on{background:rgba(255,107,53,.13);border-color:rgba(255,107,53,.4);color:var(--accent)}
 .mod.on.run{background:rgba(91,141,239,.14);border-color:rgba(91,141,239,.45);color:#5b8def}
+.mod.on.mob{background:rgba(95,158,143,.16);border-color:rgba(95,158,143,.5);color:#5f9e8f}
 .mod:active{opacity:.7}
 
 /* --- CORRIDA --- */
@@ -572,6 +574,7 @@ async function load(){
   }
   if(!Array.isArray(S.runs))S.runs=[];
   if(!Array.isArray(S.plans))S.plans=[];
+  if(!Array.isArray(S.mobility))S.mobility=[];
   // migra tipos removidos: easy -> regen, tempo -> limiar, race -> longao
   const MIG={easy:'regen',tempo:'limiar',race:'long'};
   S.runs.forEach(r=>{
@@ -604,7 +607,7 @@ function notifications(){
         e seus dados ficam salvos no aparelho.`,
       actionLabel:'Entendi',action:'dismissInstallHint()'});
   }
-  const nReg=S.history.length+runs().length;
+  const nReg=S.history.length+runs().length+S.mobility.length;
   const dsb=daysSinceBackup();
   if(nReg>0&&dsb>14){
     list.push({key:'backup',icon:'⚠️',
@@ -649,8 +652,9 @@ function notifScreen(){
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
 
-function lastSession(wid){
-  return S.history.filter(h=>h.wid===wid).sort((a,b)=>b.date-a.date)[0]||null;
+function lastSession(wid,kind){
+  const arr=kind==='mobility'?S.mobility:S.history;
+  return arr.filter(h=>h.wid===wid).sort((a,b)=>b.date-a.date)[0]||null;
 }
 function prevSets(wid,exName){
   // busca o registro mais recente deste exercício em QUALQUER treino
@@ -680,7 +684,8 @@ function periodCount(kind){
     from=new Date(y,0,1).getTime();
   }
   return S.history.filter(h=>h.date>=from).length
-    + runs().filter(r=>r.date>=from).length;
+    + runs().filter(r=>r.date>=from).length
+    + S.mobility.filter(m=>m.date>=from).length;
 }
 function streak(){
   // semanas consecutivas (contando de trás) em que a meta semanal foi batida
@@ -691,7 +696,8 @@ function streak(){
   for(let i=0;i<104;i++){
     const a=ref.getTime(), b=a+7*86400000;
     const c=S.history.filter(h=>h.date>=a&&h.date<b).length
-      + runs().filter(r=>r.date>=a&&r.date<b).length;
+      + runs().filter(r=>r.date>=a&&r.date<b).length
+      + S.mobility.filter(m=>m.date>=a&&m.date<b).length;
     if(i===0){ if(c>=g)s++; }        // semana atual só conta se já bateu
     else{ if(c>=g)s++; else break; }
     ref.setDate(ref.getDate()-7);
@@ -779,7 +785,7 @@ function config(){
     <span class="mc">›</span></button>`;
   h+=`<button class="mcard" onclick="exportData()">
     <span class="mi">💾</span><span class="mt">Backup dos dados</span>
-    <span class="mv">${S.history.length+runs().length} registros</span><span class="mc">›</span></button>`;
+    <span class="mv">${S.history.length+runs().length+S.mobility.length} registros</span><span class="mc">›</span></button>`;
   h+=`<button class="mcard" onclick="importPlanOpen()">
     <span class="mi">📥</span><span class="mt">Importar planejamento (PC)<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Adiciona o plano de corrida feito no computador</div></span>
     <span class="mc">›</span></button>`;
@@ -793,7 +799,7 @@ function config(){
 window.openGoals=()=>{view='goals';render()};
 function goalsScreen(){
   $('title').textContent='Metas de treino';
-  $('sub').textContent='Musculação + corrida';
+  $('sub').textContent='Musculação + corrida + mobilidade';
   $('back').style.display='block';$('timer').textContent='';
   const g=goals();
   const rows=[
@@ -802,8 +808,8 @@ function goalsScreen(){
     ['year','Meta anual','Reinicia em 1º de janeiro','/ano'],
   ];
   let h=`<div style="font-size:12.5px;color:var(--dim);line-height:1.55;margin-bottom:14px">
-    Os anéis da tela principal mostram seu progresso. Treinos de musculação e
-    corrida contam juntos para a meta.</div>`;
+    Os anéis da tela principal mostram seu progresso. Treinos de musculação,
+    corrida e mobilidade contam juntos para a meta.</div>`;
   rows.forEach(([k,t,d,u])=>{
     h+=`<div class="cfg-row"><div class="goal-row">
       <div class="goal-txt"><div class="ct">${t}</div><div class="cd2">${d}</div></div>
@@ -840,14 +846,14 @@ window.preset=async(w,m,y)=>{
 const TABS=[['home','🏋️','Treinos'],['cal','📅','Calendário'],
   ['rep','📊','Evolução'],['hist','🕘','Histórico'],['cfg','⚙️','Ajustes']];
 function drawTabs(){
-  const isRun=mod==='run';
-  const cur=(view==='home'||view==='run'||view==='plan')?'home':
-    (view==='rep'||view==='runrep')?'rep':
+  const isRun=mod==='run', isMob=mod==='mobility';
+  const cur=(view==='home'||view==='run'||view==='mob'||view==='plan')?'home':
+    (view==='rep'||view==='runrep'||view==='moborep')?'rep':
     ['hist','cfg','cal'].includes(view)?view:
     (view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif')?'cfg':'';
   const notifN=notifications().length;
   $('tabbar').innerHTML=TABS.map(([v,i,l])=>{
-    const ic=v==='home'&&isRun?'🏃':i;
+    const ic=v==='home'?(isRun?'🏃':isMob?'🧘':i):i;
     const badge=(v==='cfg'&&notifN)?`<span class="tb-badge">${notifN>9?'9+':notifN}</span>`:'';
     return `<button class="tb ${v===cur?'on':''}" onclick="goTab('${v}')">
       <span class="ti" style="position:relative">${ic}${badge}</span>${l}</button>`}).join('');
@@ -858,11 +864,17 @@ window.goTab=async v=>{
     if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
     clearInterval(tick);
     await cleanupAdhoc();
+  }else if(view==='msession'){
+    const has=liveM&&liveM.exercises.some(e=>e.done);
+    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
+    clearInterval(tickM);
+    await cleanupAdhoc();
   }
-  if(v==='home')view=mod==='run'?'run':'home';
-  else if(v==='rep')view=mod==='run'?'runrep':'rep';
+  if(v==='home')view=mod==='run'?'run':(mod==='mobility'?'mob':'home');
+  else if(v==='rep')view=mod==='run'?'runrep':(mod==='mobility'?'moborep':'rep');
   else if(v==='hist'){
-    if(view!=='hist'){hFlt=mod==='run'?'run':'gym';hRunT='all';hGymW='all';hGymM='all';}
+    if(view!=='hist'){hFlt=mod==='run'?'run':(mod==='mobility'?'mobility':'gym');
+      hRunT='all';hGymW='all';hGymM='all';hMobW='all';}
     view='hist';
   }
   else if(v==='cal'){
@@ -958,6 +970,44 @@ function musclesPillHTML(arr){
     const g=muscleG(k);
     return `<span class="pill">${g?g[2]+' '+g[1]:k}</span>`;
   }).join('')}</div>`;
+}
+
+// --- regiões e focos (mobilidade) ---
+const MOBILITY_REGIONS=[
+  ['superior','Superior','⬆️'],
+  ['inferior','Inferior','⬇️'],
+  ['corpo','Corpo todo','🧘'],
+];
+// "subtópicos": tags fixas que marcam o foco do treino (não são mutuamente exclusivas)
+const MOBILITY_TAGS=[
+  ['flex','Flexibilidade','🤸'],
+  ['postural','Postural','🧍'],
+  ['ativ','Ativação','🔥'],
+  ['relax','Relaxamento','😌'],
+];
+const mobRegionG=k=>MOBILITY_REGIONS.find(x=>x[0]===k);
+const mobTagG=k=>MOBILITY_TAGS.find(x=>x[0]===k);
+function suggestMobName(regions,tags){
+  const rOrdered=MOBILITY_REGIONS.filter(g=>(regions||[]).includes(g[0])).map(g=>g[1]);
+  const tOrdered=MOBILITY_TAGS.filter(g=>(tags||[]).includes(g[0])).map(g=>g[1]);
+  if(!rOrdered.length&&!tOrdered.length)return '';
+  let base=rOrdered.length
+    ?(rOrdered.length===1?rOrdered[0]:rOrdered.slice(0,-1).join(', ')+' e '+rOrdered[rOrdered.length-1])
+    :'Mobilidade';
+  if(tOrdered.length)base+=' — '+tOrdered.join(', ');
+  return base;
+}
+function mobPillHTML(w){
+  if(!w)return '';
+  const regions=w.regions||[], tags=w.tags||[];
+  if(!regions.length&&!tags.length)return '';
+  return `<div style="margin-top:5px">${regions.map(k=>{
+      const g=mobRegionG(k);
+      return `<span class="pill">${g?g[2]+' '+g[1]:k}</span>`;
+    }).join('')}${tags.map(k=>{
+      const g=mobTagG(k);
+      return `<span class="pill">${g?g[2]+' '+g[1]:k}</span>`;
+    }).join('')}</div>`;
 }
 const rType=k=>RUN_TYPES.find(t=>t[0]===k)||RUN_TYPES[0];
 
@@ -1694,6 +1744,12 @@ function dayEvents(){
     (m[k]=m[k]||[]).push({k:'run',date:r.date,color:t[3],
       label:t[1],d:r,ic:t[2]});
   });
+  S.mobility.forEach(ms=>{
+    const w=S.workouts.find(x=>x.id===ms.wid);
+    const k=dayKey(ms.date);
+    (m[k]=m[k]||[]).push({k:'mobility',date:ms.date,color:wColor(w)||'#5f9e8f',
+      label:ms.name,d:ms});
+  });
   Object.values(m).forEach(a=>a.sort((x,y)=>x.date-y.date));
   return m;
 }
@@ -1738,6 +1794,7 @@ function calendar(){
     <button class="fb ${calFlt==='all'?'on':''}" onclick="setCalFlt('all')">Todos</button>
     <button class="fb ${calFlt==='gym'?'on':''}" style="--fbc:var(--accent)" onclick="setCalFlt('gym')">🏋️ Musculação</button>
     <button class="fb ${calFlt==='run'?'on':''}" style="--fbc:#5b8def" onclick="setCalFlt('run')">🏃 Corrida</button>
+    <button class="fb ${calFlt==='mobility'?'on':''}" style="--fbc:#5f9e8f" onclick="setCalFlt('mobility')">🧘 Mobilidade</button>
   </div>`;
 
   h+=`<div class="cal-nav">
@@ -1754,7 +1811,7 @@ function calendar(){
   for(let i=startDow-1;i>=0;i--)
     h+=`<div class="cday out">${prevN-i}</div>`;
 
-  let mGym=0,mRun=0,mKm=0;
+  let mGym=0,mRun=0,mMob=0,mKm=0;
   const weeks=[];   // km por linha da grade
   let wk={km:0,n:0};
   let col=startDow;
@@ -1763,6 +1820,7 @@ function calendar(){
     const es=ev[k]||[];
     es.forEach(e=>{
       if(e.k==='gym')mGym++;
+      else if(e.k==='mobility')mMob++;
       else{mRun++;mKm+=e.d.km||0;wk.km+=e.d.km||0;wk.n++;}
     });
     const cls=['cday'];
@@ -1797,7 +1855,7 @@ function calendar(){
 
   // legenda por tipo
   const legs=[];
-  if(calFlt!=='run'){
+  if(calFlt==='all'||calFlt==='gym'){
     const used=[...new Set(S.history.map(s=>s.wid))];
     if(calFlt==='gym'&&used.length){
       used.forEach(id=>{
@@ -1808,7 +1866,18 @@ function calendar(){
       });
     }else legs.push(['var(--accent)','Musculação']);
   }
-  if(calFlt!=='gym'){
+  if(calFlt==='all'||calFlt==='mobility'){
+    const usedM=[...new Set(S.mobility.map(s=>s.wid))];
+    if(calFlt==='mobility'&&usedM.length){
+      usedM.forEach(id=>{
+        const w=S.workouts.find(x=>x.id===id);
+        const hs=S.mobility.filter(x=>x.wid===id);
+        const nm=w?w.name:(hs[0]?hs[0].name:'(removido)');
+        legs.push([wColor(w)||'#5f9e8f',nm]);
+      });
+    }else legs.push(['#5f9e8f','Mobilidade']);
+  }
+  if(calFlt==='all'||calFlt==='run'){
     RUN_TYPES.filter(t=>runs().some(r=>r.type===t[0]))
       .forEach(t=>legs.push([t[3],t[1]]));
   }
@@ -1818,12 +1887,15 @@ function calendar(){
 
   h+=`<div class="cal-sum">`;
   if(calFlt==='all'){
-    h+=`<div class="stat" style="background:transparent"><b>${mGym+mRun}</b><span>treinos</span></div>
+    h+=`<div class="stat" style="background:transparent"><b>${mGym+mRun+mMob}</b><span>treinos</span></div>
       <div class="stat" style="background:transparent"><b>${mGym}</b><span>musculação</span></div>
       <div class="stat" style="background:transparent"><b>${mRun}</b><span>corridas</span></div>
+      <div class="stat" style="background:transparent"><b>${mMob}</b><span>mobilidade</span></div>
       ${mKm?`<div class="stat" style="background:transparent"><b>${mKm.toFixed(1)}</b><span>km</span></div>`:''}`;
   }else if(calFlt==='gym'){
     h+=`<div class="stat" style="background:transparent"><b>${mGym}</b><span>sessões no mês</span></div>`;
+  }else if(calFlt==='mobility'){
+    h+=`<div class="stat" style="background:transparent"><b>${mMob}</b><span>sessões no mês</span></div>`;
   }else{
     const secs=Object.values(ev).flat().reduce((a,e)=>a+(e.d.sec||0),0);
     h+=`<div class="stat" style="background:transparent"><b>${mRun}</b><span>treinos</span></div>
@@ -1855,11 +1927,20 @@ function calendar(){
     }
     if(!es.length&&!pend.length){
       const msg=calFlt==='all'?'Nenhum treino registrado neste dia.'
-        :`Nenhum treino de ${calFlt==='run'?'corrida':'musculação'} neste dia.`;
+        :`Nenhum treino de ${calFlt==='run'?'corrida':calFlt==='mobility'?'mobilidade':'musculação'} neste dia.`;
       h+=`<div class="day-empty">${msg}</div>`;
     }else if(es.length){
       es.forEach(e=>{
-        if(e.k==='run'){
+        if(e.k==='mobility'){
+          const m=e.d;
+          const hasColor=e.color!=='#5f9e8f';
+          h+=`<div class="card w-card" ${hasColor?`data-c="1" style="--wc:${e.color}"`:''}>
+            <div class="hist-row"><strong>🧘 ${esc(m.name)}</strong>
+              <span>${fmtDur(m.sec)}</span></div>
+            ${mobPillHTML(m)}
+            ${m.exercises.map(x=>`<div class="hist-row"><span style="color:var(--txt)">${esc(x.name)}</span></div>`).join('')}
+          </div>`;
+        }else if(e.k==='run'){
           const r=e.d;
           h+=`<div class="run-card" style="--rc:${e.color}" onclick="runMenu('${r.id}')">
             <div class="run-top"><span style="font-size:16px">${e.ic}</span>
@@ -2531,21 +2612,26 @@ function modsHTML(active){
       <span class="mi2">🏋️</span>Musculação</button>
     <button class="mod run ${active==='run'?'on':''}" onclick="goMod('run')">
       <span class="mi2">🏃</span>Corrida</button>
+    <button class="mod mob ${active==='mobility'?'on':''}" onclick="goMod('mobility')">
+      <span class="mi2">🧘</span>Mobilidade</button>
   </div>`;
 }
 window.goMod=m=>{
   mod=m;
   if(view==='plan'){repSel='';render();return;}
-  if(view==='rep'||view==='runrep')view=m==='run'?'runrep':'rep';
-  else view=m==='run'?'run':'home';
+  if(view==='rep'||view==='runrep'||view==='moborep')
+    view=m==='run'?'runrep':(m==='mobility'?'moborep':'rep');
+  else view=m==='run'?'run':(m==='mobility'?'mob':'home');
   repSel='';render();
 };
 
-function activeW(){return S.workouts.filter(w=>!w.archived)}
-function archivedW(){return S.workouts.filter(w=>w.archived)}
+function activeW(kind){return S.workouts.filter(w=>!w.archived&&
+  (kind?((kind==='mobility')?w.kind==='mobility':w.kind!=='mobility'):true))}
+function archivedW(kind){return S.workouts.filter(w=>w.archived&&
+  (kind?((kind==='mobility')?w.kind==='mobility':w.kind!=='mobility'):true))}
 
 function home(){
-  const act=activeW(), arc=archivedW();
+  const act=activeW('gym'), arc=archivedW('gym');
   $('title').textContent='Treinos';
   $('sub').textContent=act.length?act.length+' treino(s) ativo(s)':'';
   $('back').style.display='none'; $('timer').textContent='';
@@ -2570,9 +2656,37 @@ function home(){
   $('fab').innerHTML='<button class="fab btn-a" onclick="editW()">+ Novo treino</button>';
 }
 
+/* ---------- MOBILIDADE: HOME ---------- */
+function mobHome(){
+  const act=activeW('mobility'), arc=archivedW('mobility');
+  $('title').textContent='Treinos';
+  $('sub').textContent=act.length?act.length+' treino(s) ativo(s)':'';
+  $('back').style.display='none'; $('timer').textContent='';
+  let h=ringsHTML()+modsHTML('mobility');
+  h+='<div class="sec-lbl" style="margin-top:16px">Meus treinos</div>';
+  if(!act.length){
+    h+=`<div class="empty" style="padding:30px 18px">Nenhum treino de mobilidade ativo.<br>${arc.length?'Você tem '+arc.length+' treino(s) arquivado(s).':'Toque em <b>+ Novo treino</b> para criar o primeiro.'}</div>`;
+  }else{
+    act.forEach(w=>{
+      const l=lastSession(w.id,'mobility');
+      const c=wColor(w);
+      h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c};`:'style="'}display:flex;align-items:center;gap:6px;padding:12px 8px 12px 14px">
+        <div style="flex:1;cursor:pointer" onclick="openMobW('${w.id}')">
+          <h3 style="margin:0 0 3px;font-size:16px">${esc(w.name)}${w.adhoc?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">ESPORÁDICO</span>':''}</h3>
+          <p style="margin:0;font-size:12.5px;color:var(--dim)">${w.exercises.length} exercícios${l?' · último: '+fdate(l.date)+' · '+fmtDur(l.sec):' · nunca feito'}</p>
+          ${mobPillHTML(w)}
+        </div>
+        <button class="kebab" onclick="wMenu('${w.id}')">⋮</button></div>`;
+    });
+  }
+  $('app').innerHTML=h;
+  $('fab').innerHTML='<button class="fab btn-a" onclick="editMobW()">+ Novo treino</button>';
+}
+
 /* ---------- MENU DO TREINO ---------- */
 window.wMenu=id=>{
   const w=S.workouts.find(x=>x.id===id);
+  if(w.kind==='mobility'){mobWMenu(id);return;}
   const n=S.history.filter(h=>h.wid===id).length;
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
@@ -2584,6 +2698,25 @@ window.wMenu=id=>{
       <button class="menu-item" onclick="closeM();editW('${id}')"><span class="ic">✎</span>Editar exercícios</button>
       <button class="menu-item" onclick="closeM();colorW('${id}')"><span class="ic" style="color:${wColor(w)||'var(--dim)'}">●</span>Alterar cor</button>
       <button class="menu-item" onclick="closeM();dupW('${id}')"><span class="ic">⧉</span>Duplicar treino</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" onclick="arcW('${id}',true)"><span class="ic">📦</span>Arquivar treino</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Cancelar</button>
+    </div></div>`;
+};
+window.mobWMenu=id=>{
+  const w=S.workouts.find(x=>x.id===id);
+  const n=S.mobility.filter(h=>h.wid===id).length;
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>${esc(w.name)}</h2>
+      ${mobPillHTML(w)}
+      <div style="font-size:12.5px;color:var(--dim);margin:8px 0 14px">
+        ${w.exercises.length} exercícios · ${n} sessão(ões) no histórico</div>
+      <button class="menu-item" onclick="closeM();openMobW('${id}')"><span class="ic">▶</span>Iniciar treino</button>
+      <button class="menu-item" onclick="closeM();editMobW('${id}')"><span class="ic">✎</span>Editar exercícios</button>
+      <button class="menu-item" onclick="closeM();colorW('${id}')"><span class="ic" style="color:${wColor(w)||'var(--dim)'}">●</span>Alterar cor</button>
+      <button class="menu-item" onclick="closeM();dupMobW('${id}')"><span class="ic">⧉</span>Duplicar treino</button>
       <div class="menu-sep"></div>
       <button class="menu-item" onclick="arcW('${id}',true)"><span class="ic">📦</span>Arquivar treino</button>
       <div class="menu-sep"></div>
@@ -2602,6 +2735,16 @@ window.dupW=async id=>{
       ?{name:e}:{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||''})};
   if(w.color)nw.color=w.color;
   if(w.muscles&&w.muscles.length)nw.muscles=w.muscles.slice();
+  S.workouts.push(nw);
+  await save();render();toast('Treino duplicado');
+};
+window.dupMobW=async id=>{
+  const w=S.workouts.find(x=>x.id===id);
+  const nw={id:uid(),kind:'mobility',name:w.name+' (cópia)',
+    exercises:w.exercises.map(e=>({name:e.name,desc:e.desc||''}))};
+  if(w.color)nw.color=w.color;
+  if(w.regions&&w.regions.length)nw.regions=w.regions.slice();
+  if(w.tags&&w.tags.length)nw.tags=w.tags.slice();
   S.workouts.push(nw);
   await save();render();toast('Treino duplicado');
 };
@@ -2627,7 +2770,7 @@ function delScreen(){
       if(!list.length)return;
       h+=`<div class="sec-lbl">${lbl}</div>`;
       list.forEach(w=>{
-        const n=S.history.filter(x=>x.wid===w.id).length;
+        const n=(w.kind==='mobility'?S.mobility:S.history).filter(x=>x.wid===w.id).length;
         const c=wColor(w);
         h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c};`:'style="'}display:flex;align-items:center;gap:9px;padding:12px 10px 12px 14px">
           <div style="flex:1;min-width:0">
@@ -2639,11 +2782,11 @@ function delScreen(){
       });
     });
   }
-  const totalReg=S.workouts.length+S.history.length+runs().length+plans().length;
+  const totalReg=S.workouts.length+S.history.length+runs().length+plans().length+S.mobility.length;
   h+=`<div class="sec-lbl" style="margin-top:26px">Zona de risco</div>
     <div class="card" style="border-color:rgba(224,69,63,.4)">
       <div style="font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:12px">
-        Apaga <b style="color:var(--txt)">tudo</b>: treinos, sessões de musculação, corridas,
+        Apaga <b style="color:var(--txt)">tudo</b>: treinos, sessões de musculação, corridas, mobilidade,
         planejamentos e metas (${totalReg} registro(s) no total). O app volta a ficar como se
         estivesse sendo usado pela primeira vez. Se ainda não fez backup, gere um antes em
         <b onclick="exportData()" style="text-decoration:underline;cursor:pointer;color:var(--txt)">Backup dos dados</b>.</div>
@@ -2652,17 +2795,18 @@ function delScreen(){
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
 window.resetApp=async()=>{
-  const nW=S.workouts.length, nS=S.history.length, nR=runs().length, nP=plans().length;
-  const total=nW+nS+nR+nP;
+  const nW=S.workouts.length, nS=S.history.length, nR=runs().length, nP=plans().length, nM=S.mobility.length;
+  const total=nW+nS+nR+nP+nM;
   if(!await ask('Resetar o aplicativo?',
-    `Isso apaga PERMANENTEMENTE ${nW} treino(s), ${nS} sessão(ões) de musculação, ${nR} corrida(s) `+
+    `Isso apaga PERMANENTEMENTE ${nW} treino(s), ${nS} sessão(ões) de musculação, ${nR} corrida(s), `+
+    `${nM} sessão(ões) de mobilidade `+
     `e ${nP} planejamento(s) salvos neste aparelho — ${total} registro(s) no total — além das metas `+
     `configuradas. O app volta a ficar como recém-instalado.\n\nSe ainda não fez backup, cancele agora `+
     `e gere um em "Backup dos dados" antes de continuar.`,
     'Resetar tudo',true))return;
   if(!await ask('Tem certeza mesmo?',
     'Não existe como recuperar os dados depois disso.','Sim, apagar tudo',true))return;
-  S={workouts:[],history:[],runs:[],plans:[]};
+  S={workouts:[],history:[],runs:[],plans:[],mobility:[]};
   try{localStorage.removeItem(LS_KEY);}catch(e){}
   try{localStorage.removeItem('lastBackupAt');}catch(e){}
   try{localStorage.removeItem('hideInstallHint');}catch(e){}
@@ -2855,9 +2999,124 @@ window.saveW=async id=>{
   }
   await save();closeM();render();toast('Treino salvo');
 };
+
+/* ---------- EDITOR DE TREINO DE MOBILIDADE ---------- */
+function editMobW(id){
+  const w=id?S.workouts.find(x=>x.id===id):{name:'',exercises:[]};
+  let exs=w.exercises.map(e=>({name:e.name,desc:e.desc||''}));
+  if(!exs.length)exs=[{name:'',desc:''}];
+  window.__adhocM=false;
+  window.__exsM=exs;
+  window.__regions=(w.regions||[]).slice();
+  window.__tags=(w.tags||[]).slice();
+  // acompanha se o nome atual ainda "pertence" à sugestão automática (região + foco),
+  // pra saber se pode continuar atualizando o campo ou se o usuário já customizou o nome
+  window.__lastAutoM=suggestMobName(window.__regions,window.__tags);
+  if(w.name!==window.__lastAutoM)window.__lastAutoM=null;
+  const draw=()=>{
+    const ad=window.__adhocM;
+    const modalEl=$('modal');
+    const prevBox=modalEl.querySelector('.modal-in');
+    const prevScroll=prevBox?prevBox.scrollTop:0;
+    modalEl.innerHTML=`<div class="modal">
+      <div class="modal-in">
+        <h2>${id?'Editar treino':'Novo treino de mobilidade'}</h2>
+        <div class="field"><label>Região</label>
+          <div class="type-grid" style="--rc2:#5f9e8f">${MOBILITY_REGIONS.map(([k,l,ic])=>
+            `<button class="type-b ${window.__regions.includes(k)?'on':''}" onclick="tgRegion('${k}')">
+              <span class="te">${ic}</span>${l}</button>`).join('')}</div></div>
+        <div class="field"><label>Foco (opcional)</label>
+          <div class="type-grid" style="--rc2:#5f9e8f">${MOBILITY_TAGS.map(([k,l,ic])=>
+            `<button class="type-b ${window.__tags.includes(k)?'on':''}" onclick="tgTag('${k}')">
+              <span class="te">${ic}</span>${l}</button>`).join('')}</div></div>
+        <div class="field"><label>Nome do treino</label>
+          <input id="wnm" value="${esc(w.name)}" placeholder="${ad?'Ex: Mobilidade do hotel':'Ex: Mobilidade matinal'}"></div>
+        <label>Exercícios</label>
+        <div id="exlm"></div>
+        <button class="btn-ghost btn-sm" style="margin:8px 0 16px" onclick="addExM()">+ Adicionar exercício</button>
+        ${id?'':`<button class="adhoc-t ${ad?'on':''}" onclick="tgAdhocM()">
+          <input type="checkbox" ${ad?'checked':''} onclick="event.stopPropagation();tgAdhocM()">
+          ⚡ Treino esporádico</button>
+        ${ad?`<div class="adhoc-hint">Treino avulso: aparece em Meus treinos normalmente,
+          mas assim que você completar a sessão pela primeira vez ele é arquivado
+          automaticamente. Histórico continua registrado normalmente.</div>`:''}`}
+        <div class="row">
+          <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+          <button class="btn-a" onclick="saveMobW('${id||''}')">Salvar</button>
+        </div>
+      </div></div>`;
+    drawExM();
+    const newBox=modalEl.querySelector('.modal-in');
+    if(newBox)newBox.scrollTop=prevScroll;
+  };
+  window.tgRegion=k=>{
+    const el=$('wnm'); if(el)w.name=el.value;
+    const i=window.__regions.indexOf(k);
+    if(i>=0)window.__regions.splice(i,1); else window.__regions.push(k);
+    if(window.__lastAutoM!==null&&w.name===window.__lastAutoM){
+      w.name=suggestMobName(window.__regions,window.__tags);
+      window.__lastAutoM=w.name;
+    }
+    draw();
+  };
+  window.tgTag=k=>{
+    const el=$('wnm'); if(el)w.name=el.value;
+    const i=window.__tags.indexOf(k);
+    if(i>=0)window.__tags.splice(i,1); else window.__tags.push(k);
+    if(window.__lastAutoM!==null&&w.name===window.__lastAutoM){
+      w.name=suggestMobName(window.__regions,window.__tags);
+      window.__lastAutoM=w.name;
+    }
+    draw();
+  };
+  window.tgAdhocM=()=>{
+    const el=$('wnm'); if(el)w.name=el.value;
+    window.__adhocM=!window.__adhocM;
+    draw();
+  };
+  window.addExM=()=>{window.__exsM.push({name:'',desc:''});drawExM();
+    setTimeout(()=>{const n=document.querySelectorAll('.exm-blk .exnm');n[n.length-1].focus()},50)};
+  window.rmExM=i=>{window.__exsM.splice(i,1);
+    if(!window.__exsM.length)window.__exsM.push({name:'',desc:''});drawExM()};
+  window.exSetM=(i,k,v)=>{window.__exsM[i][k]=v};
+  function drawExM(){
+    $('exlm').innerHTML=window.__exsM.map((e,i)=>`
+      <div class="blk exm-blk">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          <input class="exnm" style="flex:1;font-weight:600" value="${esc(e.name)}"
+            placeholder="Ex: Alongamento de posterior de coxa" oninput="exSetM(${i},'name',this.value)">
+          <button class="btn-ghost" style="padding:9px 11px;flex:none" onclick="rmExM(${i})">✕</button>
+        </div>
+        <div class="field" style="margin:0"><label>Como executar</label>
+          <textarea rows="2" placeholder="Descreva a execução do exercício"
+            oninput="exSetM(${i},'desc',this.value)">${esc(e.desc)}</textarea></div>
+      </div>`).join('');
+  }
+  draw();
+  setTimeout(()=>{if(!id&&!window.__adhocM){const el=$('wnm');if(el)el.focus();}},250);
+}
+window.saveMobW=async id=>{
+  const name=$('wnm').value.trim();
+  const exs=window.__exsM
+    .map(e=>({name:e.name.trim(),desc:(e.desc||'').trim()}))
+    .filter(e=>e.name);
+  const adhoc=!id&&!!window.__adhocM;
+  if(!name)return toast('Dê um nome ao treino');
+  if(!exs.length)return toast('Adicione ao menos 1 exercício');
+  if(id){const w=S.workouts.find(x=>x.id===id);w.name=name;w.exercises=exs;
+    w.regions=window.__regions.slice();w.tags=window.__tags.slice();}
+  else{
+    const nw={id:uid(),kind:'mobility',name,exercises:exs,
+      regions:window.__regions.slice(),tags:window.__tags.slice()};
+    if(adhoc)nw.adhoc=true;
+    S.workouts.push(nw);
+  }
+  await save();closeM();render();toast('Treino salvo');
+};
+
 window.delW=async id=>{
   const w=S.workouts.find(x=>x.id===id); if(!w)return;
-  const n=S.history.filter(h=>h.wid===id).length;
+  const n=(w.kind==='mobility'?S.mobility:S.history).filter(h=>h.wid===id).length;
   const msg=n?`As ${n} sessão(ões) permanecem no histórico, mas o treino sai dos relatórios por treino.`
     :'Este treino será removido.';
   if(!await ask(`Excluir "${w.name}"?`,msg,'Excluir',true))return;
@@ -2874,9 +3133,63 @@ async function cleanupAdhoc(){
   S.workouts=S.workouts.filter(w=>
     !w.adhoc
     || S.history.some(h=>h.wid===w.id)
+    || S.mobility.some(h=>h.wid===w.id)
     || plans().some(p=>p.wid===w.id));
   if(S.workouts.length!==before)await save();
 }
+
+/* ---------- SESSÃO DE MOBILIDADE ---------- */
+let curM=null, liveM=null, t0M=null, tickM=null;
+window.openMobW=id=>{
+  curM=S.workouts.find(w=>w.id===id);
+  liveM={wid:id,name:curM.name,date:Date.now(),
+    exercises:curM.exercises.map(e=>({name:e.name,desc:e.desc||'',done:false}))};
+  t0M=Date.now();
+  clearInterval(tickM);
+  tickM=setInterval(()=>{
+    const el=$('timer');
+    if(el)el.textContent=fmtDur(Math.floor((Date.now()-t0M)/1000));
+  },1000);
+  view='msession';render();
+};
+function mobSession(){
+  $('title').textContent=curM.name;
+  const l=lastSession(curM.id,'mobility');
+  $('sub').textContent=l?'Anterior: '+fdate(l.date):'Primeira sessão';
+  $('back').style.display='block';
+  $('timer').textContent=fmtDur(Math.floor((Date.now()-t0M)/1000));
+  let h='';
+  const wc=wColor(curM);
+  if(wc)h+=`<div style="height:3px;background:${wc};border-radius:2px;margin:0 0 12px"></div>`;
+  h+=mobPillHTML(curM);
+  liveM.exercises.forEach((ex,i)=>{
+    h+=`<div class="ex-block">
+      <div class="ex-head" style="align-items:flex-start">
+        <div style="flex:1">
+          <strong>${esc(ex.name)}</strong>
+          ${ex.desc?`<div class="prev" style="margin:4px 0 0">${esc(ex.desc)}</div>`:''}
+        </div>
+        <label class="bw-tog ${ex.done?'on':''}" style="flex:none">
+          <input type="checkbox" ${ex.done?'checked':''} onchange="setMobDone(${i},this.checked)">Feito</label>
+      </div>
+    </div>`;
+  });
+  $('app').innerHTML=h;
+  $('fab').innerHTML='<button class="fab btn-g" style="bottom:calc(env(safe-area-inset-bottom) + 18px)" onclick="finishMob()">✓ Finalizar treino</button>';
+}
+window.setMobDone=(i,v)=>{liveM.exercises[i].done=v};
+window.finishMob=async()=>{
+  const ex=liveM.exercises.filter(e=>e.done).map(e=>({name:e.name,desc:e.desc}));
+  if(!ex.length){if(!await ask('Sair sem salvar?','Nenhum exercício foi marcado como feito.','Sair',true))return;
+    clearInterval(tickM);await cleanupAdhoc();view='mob';render();return;}
+  const sec=Math.floor((Date.now()-t0M)/1000);
+  const sid=uid();
+  const wDone=S.workouts.find(x=>x.id===liveM.wid);
+  S.mobility.push({id:sid,wid:liveM.wid,name:liveM.name,date:liveM.date,sec,
+    exercises:ex,regions:(wDone&&wDone.regions)||[],tags:(wDone&&wDone.tags)||[]});
+  if(wDone&&wDone.adhoc&&!wDone.archived)wDone.archived=true;
+  await save();clearInterval(tickM);view='mob';render();toast('Treino salvo ✓');
+};
 
 /* ---------- SESSÃO ---------- */
 window.openW=(id,plan)=>{
@@ -3003,11 +3316,12 @@ window.finish=async()=>{
 };
 
 /* ---------- HISTÓRICO ---------- */
-let hFlt='all', hRunT='all', hGymW='all', hGymM='all';
-window.setHFlt=v=>{hFlt=v;hRunT='all';hGymW='all';hGymM='all';render()};
+let hFlt='all', hRunT='all', hGymW='all', hGymM='all', hMobW='all';
+window.setHFlt=v=>{hFlt=v;hRunT='all';hGymW='all';hGymM='all';hMobW='all';render()};
 window.setHRunT=v=>{hRunT=v;render()};
 window.setHGymW=v=>{hGymW=v;render()};
 window.setHGymM=v=>{hGymM=v;render()};
+window.setHMobW=v=>{hMobW=v;render()};
 window.openHist=()=>{view='hist';render()};
 
 function hist(){
@@ -3015,25 +3329,46 @@ function hist(){
   $('back').style.display='block';$('timer').textContent='';
   const gsAll=S.history.map(s=>({k:'gym',date:s.date,d:s}));
   const rrAll=runs().map(r=>({k:'run',date:r.date,d:r}));
+  const msAll=S.mobility.map(m=>({k:'mobility',date:m.date,d:m}));
 
   // filtro nível 1
-  let base = hFlt==='gym'?gsAll : hFlt==='run'?rrAll : [...gsAll,...rrAll];
+  let base = hFlt==='gym'?gsAll : hFlt==='run'?rrAll : hFlt==='mobility'?msAll : [...gsAll,...rrAll,...msAll];
   // filtro nível 2
   if(hFlt==='run'&&hRunT!=='all')base=base.filter(x=>x.d.type===hRunT);
   if(hFlt==='gym'&&hGymW!=='all')base=base.filter(x=>x.d.wid===hGymW);
   if(hFlt==='gym'&&hGymM!=='all')base=base.filter(x=>(x.d.muscles||[]).includes(hGymM));
+  if(hFlt==='mobility'&&hMobW!=='all')base=base.filter(x=>x.d.wid===hMobW);
   const all=base.sort((a,b)=>b.date-a.date);
 
-  $('sub').textContent=`${gsAll.length} musculação · ${rrAll.length} corrida`;
+  $('sub').textContent=`${gsAll.length} musculação · ${rrAll.length} corrida · ${msAll.length} mobilidade`;
 
   let h=`<div class="flt">
     <button class="fb ${hFlt==='all'?'on':''}" onclick="setHFlt('all')">
-      Todos <span class="fc">${gsAll.length+rrAll.length}</span></button>
+      Todos <span class="fc">${gsAll.length+rrAll.length+msAll.length}</span></button>
     <button class="fb ${hFlt==='gym'?'on':''}" style="--fbc:var(--accent)" onclick="setHFlt('gym')">
       🏋️ Musculação <span class="fc">${gsAll.length}</span></button>
     <button class="fb ${hFlt==='run'?'on':''}" style="--fbc:#5b8def" onclick="setHFlt('run')">
       🏃 Corrida <span class="fc">${rrAll.length}</span></button>
+    <button class="fb ${hFlt==='mobility'?'on':''}" style="--fbc:#5f9e8f" onclick="setHFlt('mobility')">
+      🧘 Mobilidade <span class="fc">${msAll.length}</span></button>
   </div>`;
+
+  // subfiltro de mobilidade
+  if(hFlt==='mobility'&&msAll.length){
+    const ids=[...new Set(msAll.map(x=>x.d.wid))];
+    if(ids.length>1){
+      h+=`<div class="flt-sub"><div class="fl">Treino</div><div class="flt">
+        <button class="fb ${hMobW==='all'?'on':''}" style="--fbc:#5f9e8f" onclick="setHMobW('all')">
+          Todos <span class="fc">${msAll.length}</span></button>
+        ${ids.map(id=>{
+          const w=S.workouts.find(x=>x.id===id);
+          const hs=msAll.filter(x=>x.d.wid===id);
+          const nm=w?w.name:(hs[0]?hs[0].d.name:'(removido)');
+          return `<button class="fb ${hMobW===id?'on':''}" style="--fbc:#5f9e8f" onclick="setHMobW('${id}')">
+            ${esc(nm)}${w&&w.archived?' 📦':''} <span class="fc">${hs.length}</span></button>`;
+        }).join('')}</div></div>`;
+    }
+  }
 
   // subfiltro de corrida
   if(hFlt==='run'&&rrAll.length){
@@ -3094,6 +3429,9 @@ function hist(){
     const vol=all.reduce((a,x)=>a+x.d.exercises.reduce((b,e)=>
       b+e.sets.reduce((c,z)=>c+(parseFloat(z.reps)||0)*(parseFloat(z.peso)||0),0),0),0);
     h+=`<div class="hist-count">${all.length} sessão(ões) · volume acumulado ${Math.round(vol).toLocaleString('pt-BR')} kg</div>`;
+  }else if(hFlt==='mobility'){
+    const totSec=all.reduce((a,x)=>a+(x.d.sec||0),0);
+    h+=`<div class="hist-count">${all.length} sessão(ões) · ${fmtDur(totSec)} no total</div>`;
   }else{
     h+=`<div class="hist-count">${all.length} registro(s)</div>`;
   }
@@ -3110,6 +3448,21 @@ function hist(){
           <div class="rm"><b>${fmtPace(paceOf(r.km,r.sec))}</b><span>pace</span></div>
           ${levelBadge(r)}
         </div>${structSummary(r)}</div>`;
+      return;
+    }
+    if(it.k==='mobility'){
+      const m=it.d;
+      const w=S.workouts.find(x=>x.id===m.wid);
+      const c=wColor(w);
+      h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c}"`:''}><div class="hist-row">
+        <strong>🧘 ${esc(m.name)}</strong><span>${fdateW(m.date)} · ${fmtDur(m.sec)}</span></div>
+        ${mobPillHTML(m)}`;
+      m.exercises.forEach(e=>{
+        h+=`<div class="hist-row"><span style="color:var(--txt)">${esc(e.name)}</span></div>`;
+      });
+      h+=`<div class="row" style="margin-top:10px">
+        <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="delMobH('${m.id}')">Excluir sessão</button>
+      </div></div>`;
       return;
     }
     const s=it.d;
@@ -3135,6 +3488,10 @@ function hist(){
 window.delH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
   S.history=S.history.filter(x=>x.id!==id);await save();render();
+};
+window.delMobH=async id=>{
+  if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
+  S.mobility=S.mobility.filter(x=>x.id!==id);await save();render();
 };
 /* ---------- EDITAR SESSÃO DO HISTÓRICO (data + exercícios + séries) ---------- */
 window.editHist=id=>{
@@ -3412,12 +3769,85 @@ function report(){
   $('fab').innerHTML='';
 }
 
+/* ---------- EVOLUÇÃO · MOBILIDADE ---------- */
+let mobPer='week';
+window.setMobPer=v=>{mobPer=v;render()};
+function mobReport(){
+  $('title').textContent='Evolução · Mobilidade';
+  $('sub').textContent='Sessões e foco';
+  $('back').style.display='block';$('timer').textContent='';
+  const ms=S.mobility;
+  if(!ms.length){
+    $('app').innerHTML=modsHTML('mobility')+'<div class="empty">Nenhum treino de mobilidade registrado ainda.</div>';
+    $('fab').innerHTML='';return;
+  }
+  let h=modsHTML('mobility');
+  h+=`<div class="seg">
+    ${[['day','Dia'],['week','Semana'],['month','Mês'],['year','Ano']].map(([k,l])=>
+      `<button class="${mobPer===k?'on':''}" onclick="setMobPer('${k}')">${l}</button>`).join('')}
+  </div>`;
+  const from=periodFrom(mobPer);
+  const rec=ms.filter(m=>m.date>=from);
+  const totSec=rec.reduce((a,m)=>a+(m.sec||0),0);
+  const perLbl={day:'últimos 14 dias',week:'últimas 12 semanas',month:'últimos 12 meses',year:'últimos 5 anos'}[mobPer];
+  h+=`<div class="card">
+    <div class="rep-h"><strong>Resumo do período</strong><span class="delta flat">${perLbl}</span></div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><b>${rec.length}</b><span>sessões</span></div>
+      <div class="stat"><b>${fmtDur(totSec)}</b><span>tempo total</span></div>
+    </div></div>`;
+
+  // distribuição por região
+  const byR=MOBILITY_REGIONS.map(g=>{
+    const f=rec.filter(m=>(m.regions||[]).includes(g[0]));
+    return{g,n:f.length};
+  }).filter(x=>x.n).sort((a,b)=>b.n-a.n);
+  const tR=byR.reduce((a,x)=>a+x.n,0)||1;
+  h+=`<div class="card"><div class="rep-h"><strong>Distribuição por região</strong>
+    <span class="delta flat">${perLbl}</span></div>`;
+  if(!byR.length)h+='<div class="empty" style="padding:20px 10px">Nenhuma sessão nesse período.</div>';
+  byR.forEach(x=>{
+    const p=(x.n/tR)*100;
+    h+=`<div style="margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+        <span style="color:var(--txt);font-weight:600">${x.g[2]} ${x.g[1]}</span>
+        <span style="color:var(--dim)">${x.n}× · ${p.toFixed(0)}%</span></div>
+      <div style="height:7px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${p}%;background:#5f9e8f;border-radius:4px"></div></div></div>`;
+  });
+  h+='</div>';
+
+  // distribuição por foco (subtópico)
+  const byT=MOBILITY_TAGS.map(g=>{
+    const f=rec.filter(m=>(m.tags||[]).includes(g[0]));
+    return{g,n:f.length};
+  }).filter(x=>x.n).sort((a,b)=>b.n-a.n);
+  const tT=byT.reduce((a,x)=>a+x.n,0)||1;
+  h+=`<div class="card"><div class="rep-h"><strong>Distribuição por foco</strong>
+    <span class="delta flat">${perLbl}</span></div>`;
+  if(!byT.length)h+='<div class="empty" style="padding:20px 10px">Nenhuma sessão classificada nesse período.</div>';
+  byT.forEach(x=>{
+    const p=(x.n/tT)*100;
+    h+=`<div style="margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+        <span style="color:var(--txt);font-weight:600">${x.g[2]} ${x.g[1]}</span>
+        <span style="color:var(--dim)">${x.n}× · ${p.toFixed(0)}%</span></div>
+      <div style="height:7px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${p}%;background:var(--accent2);border-radius:4px"></div></div></div>`;
+  });
+  h+='</div>';
+
+  $('app').innerHTML=h;
+  $('fab').innerHTML='';
+}
+
 /* ---------- EXPORTAR MARKDOWN ---------- */
 function buildMD(){
   const g=goals();
   const gs=[...S.history].sort((a,b)=>a.date-b.date);
   const rs=[...runs()].sort((a,b)=>a.date-b.date);
-  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x}))]
+  const ms=[...S.mobility].sort((a,b)=>a.date-b.date);
+  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x}))]
     .sort((a,b)=>a.d.date-b.d.date);
   const L=[];
   const fd=t=>{const d=new Date(t);
@@ -3433,7 +3863,7 @@ function buildMD(){
     L.push(`**Período coberto:** ${fd(d0)} a ${fd(d1)} (${dias} dias)`);
   }
   L.push(`**Metas declaradas:** ${g.week}/semana · ${g.month}/mês · ${g.year}/ano`);
-  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida`);
+  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade`);
   if(rs.length){
     const km=rs.reduce((a,r)=>a+r.km,0), sec=rs.reduce((a,r)=>a+r.sec,0);
     L.push(`**Corrida acumulada:** ${km.toFixed(1)} km em ${fmtDur(sec)} (pace médio ${fmtPace(paceOf(km,sec))}/km)`);
@@ -3529,6 +3959,20 @@ function buildMD(){
     L.push('');
   }
 
+  // --- mobilidade ---
+  if(ms.length){
+    L.push('## Mobilidade — sessões registradas');
+    L.push('');
+    L.push('| Data | Treino | Região | Foco | Exercícios | Duração |');
+    L.push('|---|---|---|---|---|---|');
+    ms.forEach(m=>{
+      const rg=(m.regions&&m.regions.length)?m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', '):'—';
+      const tg=(m.tags&&m.tags.length)?m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', '):'—';
+      L.push(`| ${fd(m.date)} | ${m.name} | ${rg} | ${tg} | ${m.exercises.map(e=>e.name).join(', ')} | ${fmtDur(m.sec)} |`);
+    });
+    L.push('');
+  }
+
   // --- cronologia unificada ---
   L.push('## Cronologia completa');
   L.push('');
@@ -3539,6 +3983,11 @@ function buildMD(){
       const r=it.d, t=rType(r.type);
       const lv2=runLevel(r), lv2Lbl=lv2?runLvl(lv2)[1]:'—';
       L.push(`| ${fd(r.date)} | Corrida | ${t[1]} (${surfOf(r)[1].toLowerCase()}): ${r.km.toFixed(2)} km em ${fmtDur(r.sec)}, pace ${fmtPace(paceOf(r.km,r.sec))}/km, esforço ${lv2Lbl} |`);
+    }else if(it.k==='mobility'){
+      const m=it.d;
+      const rg=(m.regions&&m.regions.length)?' ['+m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', ')+']':'';
+      const tg=(m.tags&&m.tags.length)?' ['+m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', ')+']':'';
+      L.push(`| ${fd(m.date)} | Mobilidade | ${m.name}${rg}${tg}: ${m.exercises.length} exercícios, ${fmtDur(m.sec)} |`);
     }else{
       const s=it.d;
       const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
@@ -3551,21 +4000,22 @@ function buildMD(){
   L.push('');
 
   // frequência semanal combinada
-  L.push('## Frequência semanal (musculação + corrida)');
+  L.push('## Frequência semanal (musculação + corrida + mobilidade)');
   L.push('');
-  L.push('| Semana (início) | Musculação | Corrida | Total | Meta |');
-  L.push('|---|---|---|---|---|');
+  L.push('| Semana (início) | Musculação | Corrida | Mobilidade | Total | Meta |');
+  L.push('|---|---|---|---|---|---|');
   const fw={};
   const add=(ts,key)=>{
     const d=new Date(ts); const dow=(d.getDay()+6)%7;
     d.setDate(d.getDate()-dow); d.setHours(0,0,0,0);
-    const k=d.getTime(); fw[k]=fw[k]||{gym:0,run:0}; fw[k][key]++;
+    const k=d.getTime(); fw[k]=fw[k]||{gym:0,run:0,mob:0}; fw[k][key]++;
   };
   gs.forEach(s=>add(s.date,'gym'));
   rs.forEach(r=>add(r.date,'run'));
+  ms.forEach(m=>add(m.date,'mob'));
   Object.keys(fw).sort((a,b)=>a-b).forEach(k=>{
-    const v=fw[k], tot=v.gym+v.run;
-    L.push(`| ${fd(+k)} | ${v.gym} | ${v.run} | ${tot} | ${g.week} ${tot>=g.week?'✅':'❌'} |`);
+    const v=fw[k], tot=v.gym+v.run+v.mob;
+    L.push(`| ${fd(+k)} | ${v.gym} | ${v.run} | ${v.mob} | ${tot} | ${g.week} ${tot>=g.week?'✅':'❌'} |`);
   });
   L.push('');
   L.push('---');
@@ -3574,7 +4024,7 @@ function buildMD(){
   return L.join('\n');
 }
 window.exportMD=()=>{
-  if(!S.history.length&&!runs().length)return toast('Nenhum treino para exportar');
+  if(!S.history.length&&!runs().length&&!S.mobility.length)return toast('Nenhum treino para exportar');
   try{
     const md=buildMD();
     const d=new Date(), p=n=>String(n).padStart(2,'0');
@@ -3589,7 +4039,7 @@ window.exportMD=()=>{
   }catch(e){toast('Falha ao gerar relatório')}
 };
 window.mdInfo=()=>{
-  const n=S.history.length+runs().length;
+  const n=S.history.length+runs().length+S.mobility.length;
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
       <h2>Relatório para IA</h2>
@@ -3613,8 +4063,8 @@ function bkName(){
   return `treinos-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.json`;
 }
 window.exportData=()=>{
-  const nS=S.history.length, nR=runs().length;
-  const allD=[...S.history.map(h=>h.date),...runs().map(r=>r.date)];
+  const nS=S.history.length, nR=runs().length, nM=S.mobility.length;
+  const allD=[...S.history.map(h=>h.date),...runs().map(r=>r.date),...S.mobility.map(m=>m.date)];
   const last=allD.length?fdate(Math.max(...allD)):'—';
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
@@ -3622,6 +4072,7 @@ window.exportData=()=>{
       <div class="stats" style="margin:0 0 14px">
         <div class="stat"><b>${nS}</b><span>musculação</span></div>
         <div class="stat"><b>${nR}</b><span>corridas</span></div>
+        <div class="stat"><b>${nM}</b><span>mobilidade</span></div>
         <div class="stat" style="font-size:12px"><b style="font-size:13px">${last}</b><span>último</span></div>
       </div>
       <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
@@ -3641,8 +4092,8 @@ window.exportData=()=>{
 };
 window.doExport=()=>{
   try{
-    const payload={_app:'treinos',_v:4,_exportedAt:new Date().toISOString(),
-      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans()};
+    const payload={_app:'treinos',_v:5,_exportedAt:new Date().toISOString(),
+      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -3670,13 +4121,14 @@ window.doImport=inp=>{
     if(!d||!Array.isArray(d.workouts)||!Array.isArray(d.history))
       return toast('Não parece um backup de treinos');
     const when=d._exportedAt?fdate(new Date(d._exportedAt).getTime()):'data desconhecida';
-    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas\n`+
-      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas\n\n`+
+    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade\n`+
+      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade\n\n`+
       `Os dados atuais serão substituídos.`;
     if(!await ask(`Restaurar backup de ${when}?`,det,'Restaurar',true))return;
     S={workouts:d.workouts,history:d.history,goals:d.goals||S.goals,
        runs:Array.isArray(d.runs)?d.runs:[],
-       plans:Array.isArray(d.plans)?d.plans:[]};
+       plans:Array.isArray(d.plans)?d.plans:[],
+       mobility:Array.isArray(d.mobility)?d.mobility:[]};
     await save();closeM();view='home';render();toast('Dados restaurados');
   };
   r.onerror=()=>toast('Erro ao ler o arquivo');
@@ -3757,10 +4209,13 @@ window.doImportPlan=inp=>{
 /* ---------- ROUTER ---------- */
 function render(){
   if(view==='session'&&cur)session();
+  else if(view==='msession'&&curM)mobSession();
   else if(view==='hist')hist();
   else if(view==='rep')report();
   else if(view==='runrep')runReport();
+  else if(view==='moborep')mobReport();
   else if(view==='run')runHome();
+  else if(view==='mob')mobHome();
   else if(view==='arc')archived();
   else if(view==='order')order();
   else if(view==='del')delScreen();
@@ -3770,8 +4225,8 @@ function render(){
   else if(view==='cfg')config();
   else if(view==='cal')calendar();
   else home();
-  $('tabbar').style.display=view==='session'?'none':'flex';
-  if(view!=='session')drawTabs();
+  $('tabbar').style.display=(view==='session'||view==='msession')?'none':'flex';
+  if(view!=='session'&&view!=='msession')drawTabs();
 }
 $('back').onclick=async()=>{
   if(view==='session'){
@@ -3780,9 +4235,15 @@ $('back').onclick=async()=>{
     clearInterval(tick);
     await cleanupAdhoc();
     view='home';
+  }else if(view==='msession'){
+    const has=liveM&&liveM.exercises.some(e=>e.done);
+    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
+    clearInterval(tickM);
+    await cleanupAdhoc();
+    view='mob';
   }else if(view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'){
     view='cfg';
-  }else view=mod==='run'?'run':'home';
+  }else view=mod==='run'?'run':(mod==='mobility'?'mob':'home');
   repSel='';render();
 };
 load();

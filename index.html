@@ -355,6 +355,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .seg button{flex:1;background:transparent;color:var(--dim);padding:8px 4px;
   font-size:12.5px;font-weight:700;border-radius:8px}
 .seg button.on{background:#5b8def;color:#fff}
+.seg3 button{padding:8px 2px;font-size:11.5px}
 
 /* --- CALENDÁRIO --- */
 .cal-nav{display:flex;align-items:center;gap:10px;margin-bottom:12px}
@@ -1112,6 +1113,15 @@ function timeFromPaceKm(pm,ps,km){
   const spk=(parseInt(pm)||0)*60+(parseInt(ps)||0);
   return Math.round(spk*(parseFloat(String(km).replace(',','.'))||0));
 }
+// converte velocidade (km/h) + distância em segundos totais — inverso de speedOf
+function timeFromSpeedKm(v,km){
+  v=parseFloat(String(v).replace(',','.'))||0;
+  km=parseFloat(String(km).replace(',','.'))||0;
+  if(!v||!km)return 0;
+  return Math.round(km/v*3600);
+}
+// velocidade média (km/h) a partir de tempo total (km,sec) — usado no modo "Velocidade"
+function speedOf(km,sec){ return kmhOf(paceOf(km,sec)); }
 function fmtPace(sp){
   if(!sp||!isFinite(sp))return '—';
   const m=Math.floor(sp/60), s=Math.round(sp%60);
@@ -1221,7 +1231,7 @@ window.runForm=id=>{
     id:null,date:Date.now(),type:'rodagem',km:'',h:'',m:'',s:'',level:'moderado',surf:'rua',note:'',
     wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()}};
   if(!RF.level)RF.level=runLevel(RF)||'moderado'; // compat com registros antigos em RPE numérico
-  RF.paceMode=false;
+  RF.tmode='time';
   if(r){
     const t=r.sec||0;
     RF.h=Math.floor(t/3600)||'';RF.m=Math.floor((t%3600)/60);RF.s=t%60||'';
@@ -1283,6 +1293,31 @@ window.rfNumPace=(field,val)=>{
   const cur=paceMS(km,rfSecs());
   const pm=field==='m'?val:cur.m, ps=field==='s'?val:cur.s;
   const sec=timeFromPaceKm(pm,ps,km);
+  RF.h=Math.floor(sec/3600); RF.m=Math.floor((sec%3600)/60); RF.s=sec%60;
+  updPace();
+};
+// --- modo "Velocidade" (km/h): converte para tempo usando a distância do próprio bloco ---
+window.rfBlkSpeed=(key,val)=>{
+  const b=RF[key];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPace();
+};
+window.rfFkSpeed=(w,val)=>{
+  const b=RF.fk[w];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPace();
+};
+window.rfShotSpeed=(i,val)=>{
+  const b=RF.shots[i];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPace();
+};
+window.rfNumSpeed=val=>{
+  const km=parseFloat(String(RF.km).replace(',','.'))||0;
+  const sec=timeFromSpeedKm(val,km);
   RF.h=Math.floor(sec/3600); RF.m=Math.floor((sec%3600)/60); RF.s=sec%60;
   updPace();
 };
@@ -1350,8 +1385,9 @@ function updPace(){
 function blkHTML(obj,setter,key,icon,title){
   const b=obj[key];
   const km=blkKm(b), sec=blkSec(b);
-  const pace=!!obj.paceMode;
+  const mode=obj.tmode||'time';
   const pv=paceMS(km,sec);
+  const sv=speedOf(km,sec);
   return `<div class="blk">
     <div class="blk-h"><span class="bi">${icon}</span><span class="bt">${title}</span>
       <span class="bs">${km||sec?`${km.toFixed(2)} km · ${fmtDur(sec)}`:'—'}</span></div>
@@ -1359,12 +1395,15 @@ function blkHTML(obj,setter,key,icon,title){
       <div class="mini-f"><label>Distância (km)</label>
         <input type="number" inputmode="decimal" step="0.01" value="${esc(b.km)}"
           placeholder="2.00" oninput="${setter}('${key}','km',this.value)"></div>
-      ${pace?`<div class="mini-f"><label>Pace (min : s /km)</label>
+      ${mode==='pace'?`<div class="mini-f"><label>Pace (min : s /km)</label>
         <div class="dur2">
           <input type="number" inputmode="numeric" value="${pv.m}" placeholder="5" oninput="${setter}Pace('${key}','m',this.value)">
           <div class="sep">:</div>
           <input type="number" inputmode="numeric" value="${pv.s}" placeholder="00" oninput="${setter}Pace('${key}','s',this.value)">
         </div></div>`:
+      mode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
+        <input type="number" inputmode="decimal" step="0.1" value="${sv?sv.toFixed(1):''}"
+          placeholder="10.0" oninput="${setter}Speed('${key}',this.value)"></div>`:
       `<div class="mini-f"><label>Tempo (min : s)</label>
         <div class="dur2">
           <input type="number" inputmode="numeric" value="${esc(b.m)}" placeholder="12" oninput="${setter}('${key}','m',this.value)">
@@ -1383,6 +1422,13 @@ function fkPaceHTML(b,setter,key){
       <input type="number" inputmode="numeric" value="${pv.s}" placeholder="00" oninput="${setter}('${key}','s',this.value)">
     </div></div>`;
 }
+// campo de velocidade (km/h) reutilizável para blocos fk (fartlek/limiar), tanto em RF quanto PF
+function fkSpeedHTML(b,setter,key){
+  const sv=speedOf(blkKm(b),blkSec(b));
+  return `<div class="mini-f"><label>Velocidade (km/h)</label>
+    <input type="number" inputmode="decimal" step="0.1" value="${sv?sv.toFixed(1):''}"
+      placeholder="10.0" oninput="${setter}('${key}',this.value)"></div>`;
+}
 
 function drawRunForm(){
   const d=new Date(RF.date);
@@ -1399,9 +1445,10 @@ function drawRunForm(){
       <div class="field"><label>Data</label>
         <input type="date" value="${dv}" onchange="rfDate(this.value)"></div>
       <div class="field"><label>Preenchimento do tempo</label>
-        <div class="seg">
-          <button class="${!RF.paceMode?'on':''}" onclick="rfSet('paceMode',false)">Tempo</button>
-          <button class="${RF.paceMode?'on':''}" onclick="rfSet('paceMode',true)">Pace</button>
+        <div class="seg seg3">
+          <button class="${RF.tmode==='time'?'on':''}" onclick="rfSet('tmode','time')">Tempo</button>
+          <button class="${RF.tmode==='pace'?'on':''}" onclick="rfSet('tmode','pace')">Pace</button>
+          <button class="${RF.tmode==='speed'?'on':''}" onclick="rfSet('tmode','speed')">km/h</button>
         </div></div>`;
 
   if(structured){
@@ -1422,12 +1469,15 @@ function drawRunForm(){
             <div class="mini-f"><label>Dist. (m)</label>
               <input type="number" inputmode="numeric" step="1" value="${s.km?Math.round(blkKm(s)*1000):''}"
                 placeholder="800" oninput="rfShotM(${i},this.value)"></div>
-            ${RF.paceMode?`<div class="mini-f"><label>Pace m:s /km</label>
+            ${RF.tmode==='pace'?`<div class="mini-f"><label>Pace m:s /km</label>
               <div class="dur2">
                 <input type="number" inputmode="numeric" value="${spv.m}" placeholder="3" oninput="rfShotPace(${i},'m',this.value)">
                 <div class="sep">:</div>
                 <input type="number" inputmode="numeric" value="${spv.s}" placeholder="00" oninput="rfShotPace(${i},'s',this.value)">
               </div></div>`:
+            RF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
+              <input type="number" inputmode="decimal" step="0.1" value="${speedOf(blkKm(s),blkSec(s))?speedOf(blkKm(s),blkSec(s)).toFixed(1):''}"
+                placeholder="12.0" oninput="rfShotSpeed(${i},this.value)"></div>`:
             `<div class="mini-f"><label>Tempo m:s</label>
               <div class="dur2">
                 <input type="number" inputmode="numeric" value="${esc(s.m)}" placeholder="3" oninput="rfShot(${i},'m',this.value)">
@@ -1455,7 +1505,9 @@ function drawRunForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.fk.on.km)}"
               placeholder="0.40" oninput="rfFk('on','km',this.value)"></div>
-          ${RF.paceMode?fkPaceHTML(RF.fk.on,'rfFkPace','on'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${RF.tmode==='pace'?fkPaceHTML(RF.fk.on,'rfFkPace','on'):
+          RF.tmode==='speed'?fkSpeedHTML(RF.fk.on,'rfFkSpeed','on'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(RF.fk.on.m)}" placeholder="1" oninput="rfFk('on','m',this.value)">
               <div class="sep">:</div>
@@ -1468,7 +1520,9 @@ function drawRunForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.fk.off.km)}"
               placeholder="0.30" oninput="rfFk('off','km',this.value)"></div>
-          ${RF.paceMode?fkPaceHTML(RF.fk.off,'rfFkPace','off'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${RF.tmode==='pace'?fkPaceHTML(RF.fk.off,'rfFkPace','off'):
+          RF.tmode==='speed'?fkSpeedHTML(RF.fk.off,'rfFkSpeed','off'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(RF.fk.off.m)}" placeholder="2" oninput="rfFk('off','m',this.value)">
               <div class="sep">:</div>
@@ -1482,7 +1536,9 @@ function drawRunForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.fk.on.km)}"
               placeholder="6.00" oninput="rfFk('on','km',this.value)"></div>
-          ${RF.paceMode?fkPaceHTML(RF.fk.on,'rfFkPace','on'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${RF.tmode==='pace'?fkPaceHTML(RF.fk.on,'rfFkPace','on'):
+          RF.tmode==='speed'?fkSpeedHTML(RF.fk.on,'rfFkSpeed','on'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(RF.fk.on.m)}" placeholder="25" oninput="rfFk('on','m',this.value)">
               <div class="sep">:</div>
@@ -1494,12 +1550,16 @@ function drawRunForm(){
         <div class="field"><label>Distância (km)</label>
           <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
             placeholder="10.00" oninput="rfNum('km',this.value)"></div>
-        ${RF.paceMode?`<div class="field"><label>Pace (min : s /km)</label>
+        ${RF.tmode==='pace'?`<div class="field"><label>Pace (min : s /km)</label>
           <div class="dur2">
             <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
             <div class="sep">:</div>
             <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
           </div></div>`:
+        RF.tmode==='speed'?`<div class="field"><label>Velocidade (km/h)</label>
+          <input type="number" inputmode="decimal" step="0.1"
+            value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
+            placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
         `<div class="field"><label>Tempo (h : min : s)</label>
           <div class="dur-row">
             <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
@@ -2343,7 +2403,7 @@ function planRun(y,mo){
 /* --- formulários de plano --- */
 let PF=null;
 function pfBlank(){
-  return{wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},paceMode:false,level:'moderado',
+  return{wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},tmode:'time',level:'moderado',
     h:'',m:'',s:''};
 }
 function pfSecs(){return (parseInt(PF.h)||0)*3600+(parseInt(PF.m)||0)*60+(parseInt(PF.s)||0);}
@@ -2428,6 +2488,31 @@ window.pfShotM=(i,v)=>{
   PF.shots[i].km=v===''?'':String((parseFloat(v)||0)/1000);
   updPlanCalc();
 };
+// --- modo "Velocidade" (km/h) para o planejamento — espelha as versões de RF ---
+window.pfNumSpeed=val=>{
+  const km=parseFloat(String(PF.km).replace(',','.'))||0;
+  const sec=timeFromSpeedKm(val,km);
+  PF.h=Math.floor(sec/3600); PF.m=Math.floor((sec%3600)/60); PF.s=sec%60;
+  updPlanCalc();
+};
+window.pfBlkSpeed=(key,val)=>{
+  const b=PF[key];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPlanCalc();
+};
+window.pfFkSpeed=(w,val)=>{
+  const b=PF.fk[w];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPlanCalc();
+};
+window.pfShotSpeed=(i,val)=>{
+  const b=PF.shots[i];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPlanCalc();
+};
 function updPlanCalc(){
   const st=structTotals(PF);
   const el=$('calcboxP');
@@ -2486,9 +2571,10 @@ function drawPlanForm(){
 
   if(structured){
     h+=`<div class="field"><label>Preenchimento do tempo</label>
-      <div class="seg">
-        <button class="${!PF.paceMode?'on':''}" onclick="pfSet('paceMode',false)">Tempo</button>
-        <button class="${PF.paceMode?'on':''}" onclick="pfSet('paceMode',true)">Pace</button>
+      <div class="seg seg3">
+        <button class="${PF.tmode==='time'?'on':''}" onclick="pfSet('tmode','time')">Tempo</button>
+        <button class="${PF.tmode==='pace'?'on':''}" onclick="pfSet('tmode','pace')">Pace</button>
+        <button class="${PF.tmode==='speed'?'on':''}" onclick="pfSet('tmode','speed')">km/h</button>
       </div></div>`;
     h+=blkHTML(PF,'pfBlk','wu','🔸','Aquecimento');
     if(t==='inter'){
@@ -2506,12 +2592,15 @@ function drawPlanForm(){
             <div class="mini-f"><label>Dist. (m)</label>
               <input type="number" inputmode="numeric" step="1" value="${s.km?Math.round(blkKm(s)*1000):''}"
                 placeholder="800" oninput="pfShotM(${i},this.value)"></div>
-            ${PF.paceMode?`<div class="mini-f"><label>Pace m:s /km</label>
+            ${PF.tmode==='pace'?`<div class="mini-f"><label>Pace m:s /km</label>
               <div class="dur2">
                 <input type="number" inputmode="numeric" value="${spv.m}" placeholder="3" oninput="pfShotPace(${i},'m',this.value)">
                 <div class="sep">:</div>
                 <input type="number" inputmode="numeric" value="${spv.s}" placeholder="00" oninput="pfShotPace(${i},'s',this.value)">
               </div></div>`:
+            PF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
+              <input type="number" inputmode="decimal" step="0.1" value="${speedOf(blkKm(s),blkSec(s))?speedOf(blkKm(s),blkSec(s)).toFixed(1):''}"
+                placeholder="12.0" oninput="pfShotSpeed(${i},this.value)"></div>`:
             `<div class="mini-f"><label>Tempo m:s</label>
               <div class="dur2">
                 <input type="number" inputmode="numeric" value="${esc(s.m)}" placeholder="3" oninput="pfShot(${i},'m',this.value)">
@@ -2539,7 +2628,9 @@ function drawPlanForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.fk.on.km)}"
               placeholder="0.40" oninput="pfFk('on','km',this.value)"></div>
-          ${PF.paceMode?fkPaceHTML(PF.fk.on,'pfFkPace','on'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${PF.tmode==='pace'?fkPaceHTML(PF.fk.on,'pfFkPace','on'):
+          PF.tmode==='speed'?fkSpeedHTML(PF.fk.on,'pfFkSpeed','on'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(PF.fk.on.m)}" placeholder="1" oninput="pfFk('on','m',this.value)">
               <div class="sep">:</div>
@@ -2552,7 +2643,9 @@ function drawPlanForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.fk.off.km)}"
               placeholder="0.30" oninput="pfFk('off','km',this.value)"></div>
-          ${PF.paceMode?fkPaceHTML(PF.fk.off,'pfFkPace','off'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${PF.tmode==='pace'?fkPaceHTML(PF.fk.off,'pfFkPace','off'):
+          PF.tmode==='speed'?fkSpeedHTML(PF.fk.off,'pfFkSpeed','off'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(PF.fk.off.m)}" placeholder="2" oninput="pfFk('off','m',this.value)">
               <div class="sep">:</div>
@@ -2566,7 +2659,9 @@ function drawPlanForm(){
           <div class="mini-f"><label>Distância (km)</label>
             <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.fk.on.km)}"
               placeholder="6.00" oninput="pfFk('on','km',this.value)"></div>
-          ${PF.paceMode?fkPaceHTML(PF.fk.on,'pfFkPace','on'):`<div class="mini-f"><label>Tempo (min : s)</label>
+          ${PF.tmode==='pace'?fkPaceHTML(PF.fk.on,'pfFkPace','on'):
+          PF.tmode==='speed'?fkSpeedHTML(PF.fk.on,'pfFkSpeed','on'):
+          `<div class="mini-f"><label>Tempo (min : s)</label>
             <div class="dur2">
               <input type="number" inputmode="numeric" value="${esc(PF.fk.on.m)}" placeholder="25" oninput="pfFk('on','m',this.value)">
               <div class="sep">:</div>
@@ -2580,16 +2675,21 @@ function drawPlanForm(){
           <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
             placeholder="10.00" oninput="pfNum('km',this.value)"></div>
         <div class="field"><label>Alvo (opcional)</label>
-          <div class="seg">
-            <button class="${!PF.paceMode?'on':''}" onclick="pfSet('paceMode',false)">Tempo</button>
-            <button class="${PF.paceMode?'on':''}" onclick="pfSet('paceMode',true)">Pace</button>
+          <div class="seg seg3">
+            <button class="${PF.tmode==='time'?'on':''}" onclick="pfSet('tmode','time')">Tempo</button>
+            <button class="${PF.tmode==='pace'?'on':''}" onclick="pfSet('tmode','pace')">Pace</button>
+            <button class="${PF.tmode==='speed'?'on':''}" onclick="pfSet('tmode','speed')">km/h</button>
           </div></div>
-        ${PF.paceMode?`<div class="field"><label>Pace alvo (min : s /km)</label>
+        ${PF.tmode==='pace'?`<div class="field"><label>Pace alvo (min : s /km)</label>
           <div class="dur2">
             <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
             <div class="sep">:</div>
             <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
           </div></div>`:
+        PF.tmode==='speed'?`<div class="field"><label>Velocidade alvo (km/h)</label>
+          <input type="number" inputmode="decimal" step="0.1"
+            value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
+            placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
         `<div class="field"><label>Tempo alvo (h : min : s)</label>
           <div class="dur-row">
             <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
@@ -2662,7 +2762,7 @@ window.pfDone=()=>{
   PF=null;
   RF={id:null,date:p.date,type:p.type,km:p.km||'',h:p.h||'',m:p.m||'',s:p.s||'',level:p.level||'moderado',surf:'rua',
     note:p.note||'',wu:p.wu||blank(),cd:p.cd||blank(),reps:p.reps||6,
-    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},paceMode:false};
+    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'time'};
   syncShots();
   drawRunForm();
 };

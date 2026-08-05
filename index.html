@@ -47,6 +47,7 @@ input,select,textarea{font-family:inherit;font-size:16px;background:var(--surfac
   border:1px solid var(--line);border-radius:9px;color:var(--txt);padding:11px;width:100%}
 textarea{resize:vertical;line-height:1.4}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+input:disabled{opacity:.35;background:transparent;border-style:dashed}
 label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:600;
   text-transform:uppercase;letter-spacing:.5px}
 .field{margin-bottom:12px}
@@ -68,6 +69,39 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .set-hdr{display:grid;grid-template-columns:26px 1fr 1fr 34px;gap:7px;
   font-size:10.5px;color:var(--dim);text-transform:uppercase;
   letter-spacing:.6px;margin-bottom:6px;text-align:center;font-weight:700}
+
+/* --- séries conjugadas (bi-set / tri-set) --- */
+.grp{border:1.5px solid rgba(61,220,151,.32);border-radius:var(--radius);
+  background:rgba(61,220,151,.04);padding:8px;margin-bottom:12px}
+.grp .ex-block{margin-bottom:8px}
+.grp .ex-block:last-child{margin-bottom:0}
+.grp-hd{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:10.5px;
+  font-weight:800;color:var(--accent2);text-transform:uppercase;
+  letter-spacing:.5px;margin:2px 2px 8px}
+.grp-hd .gh-sub{color:var(--dim);font-weight:600;text-transform:none;
+  letter-spacing:0;font-size:10.5px}
+.ex-tag{display:inline-block;background:rgba(61,220,151,.16);color:var(--accent2);
+  font-size:10px;font-weight:800;padding:2px 6px;border-radius:5px;
+  margin-right:7px;letter-spacing:.3px;vertical-align:middle}
+
+/* --- modo reordenar / conjugar dentro da sessão --- */
+.ord-row2{display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:11px;padding:9px 8px 9px 11px;font-size:13.5px}
+.ord-row2.ing{border-color:rgba(61,220,151,.4);background:rgba(61,220,151,.05)}
+.ord-row2 .on2{width:26px;flex:none;text-align:center;font-size:11px;
+  font-weight:800;color:var(--dim)}
+.ord-row2.ing .on2{color:var(--accent2)}
+.ord-row2 .onm{flex:1;min-width:0;font-weight:600;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.ord-btn2{background:var(--surface2);color:var(--txt);padding:8px 12px;
+  font-size:15px;border-radius:9px;flex:none;line-height:1}
+.ord-btn2:disabled{opacity:.28}
+.lnk-row{display:flex;align-items:center;gap:8px;padding:4px 0 4px 34px}
+.lnk-row .lnk-line{flex:1;height:1px;background:var(--line)}
+.lnk-btn{background:transparent;border:1px dashed var(--line);color:var(--dim);
+  font-size:10.5px;font-weight:700;padding:4px 11px;border-radius:20px;flex:none}
+.lnk-btn.on{border-style:solid;border-color:rgba(61,220,151,.5);
+  background:rgba(61,220,151,.12);color:var(--accent2)}
 .empty{text-align:center;padding:44px 18px;color:var(--dim);font-size:14px;line-height:1.7}
 .fab{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 78px);
   left:50%;transform:translateX(-50%);z-index:30;
@@ -524,6 +558,7 @@ const toast=m=>{const t=$('toast');t.textContent=m;t.classList.add('on');
   setTimeout(()=>t.classList.remove('on'),1600)};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtSet=(reps,peso,bw)=>bw?(esc(reps)+' reps'):(esc(reps)+'×'+esc(peso));
 const fdate=d=>new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
 const DOW=['dom','seg','ter','qua','qui','sex','sáb'];
 const fdateW=d=>fdate(d)+' · '+DOW[new Date(d).getDay()];
@@ -930,7 +965,7 @@ const RUN_TYPES=[
   ['fartlek','Fartlek','🌊','#5b8def'],
 ];
 // estruturas: quais blocos cada tipo tem
-const HAS_WU={limiar:1,inter:1,fartlek:1};   // aquecimento/desaquecimento
+const HAS_WU={limiar:1,inter:1,fartlek:1,rodagem:1,regen:1,long:1};   // aquecimento/desaquecimento (todos os tipos)
 const HAS_REPS={inter:1,fartlek:1};          // blocos repetidos
 const SURF=[['rua','Rua','🛣️'],['esteira','Esteira','🏃‍♂️']];
 // --- grupos musculares (musculação) ---
@@ -1279,6 +1314,9 @@ function structTotals(obj){
   }else if(t==='limiar'){
     mainKm=blkKm(obj.fk.on);
     mainSec=blkSec(obj.fk.on);
+  }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo)
+    mainKm=parseFloat(String(obj.km).replace(',','.'))||0;
+    mainSec=(parseInt(obj.h)||0)*3600+(parseInt(obj.m)||0)*60+(parseInt(obj.s)||0);
   }
   return {km:km+mainKm,sec:sec+mainSec+restSec,
     wuKm:blkKm(obj.wu),wuSec:blkSec(obj.wu),
@@ -1436,7 +1474,7 @@ function drawRunForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(RF.fk.off.s)}" placeholder="00" oninput="rfFk('off','s',this.value)">
             </div></div>`}</div></div>`;
-    }else{ // limiar
+    }else if(t==='limiar'){
       h+=`<div class="blk">
         <div class="blk-h"><span class="bi">🔺</span><span class="bt">Parte principal</span>
           <span class="bs">ritmo de limiar</span></div>
@@ -1450,11 +1488,32 @@ function drawRunForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(RF.fk.on.s)}" placeholder="00" oninput="rfFk('on','s',this.value)">
             </div></div>`}</div></div>`;
+    }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo)
+      h+=`<div class="blk">
+        <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
+        <div class="field"><label>Distância (km)</label>
+          <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
+            placeholder="10.00" oninput="rfNum('km',this.value)"></div>
+        ${RF.paceMode?`<div class="field"><label>Pace (min : s /km)</label>
+          <div class="dur2">
+            <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
+          </div></div>`:
+        `<div class="field"><label>Tempo (h : min : s)</label>
+          <div class="dur-row">
+            <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
+          </div></div>`}
+      </div>`;
     }
     h+=blkHTML(RF,'rfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcbox"></div>`;
   }else{
-    // longão, rodagem e regenerativo: distância e tempo direto
+    // (inalcançável: HAS_WU cobre todos os tipos de corrida)
     const rfpv=paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs());
     h+=`<div class="field"><label>Distância (km)</label>
         <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
@@ -1517,7 +1576,8 @@ window.saveRun=async()=>{
   if(HAS_WU[RF.type]){
     rec.wu=RF.wu; rec.cd=RF.cd;
     if(RF.type==='inter'){rec.reps=RF.reps;rec.shots=RF.shots;}
-    else{rec.fk=RF.fk; if(RF.type==='fartlek')rec.reps=RF.reps;}
+    else if(RF.type==='fartlek'){rec.fk=RF.fk;rec.reps=RF.reps;}
+    else if(RF.type==='limiar'){rec.fk=RF.fk;}
     rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
   }
   S.runs=runs().filter(x=>x.id!==rec.id);
@@ -1961,9 +2021,10 @@ function calendar(){
             <div class="hist-row"><strong>🏋️ ${esc(s.name)}</strong>
               <span>${s.dur?s.dur+' min':''}</span></div>
             ${musclesPillHTML(s.muscles)}
-            ${s.exercises.map(x=>`<div class="hist-row">
-              <span style="color:var(--txt)">${esc(x.name)}${x.bw?'<span class="tag-pc">PC</span>':''}</span>
-              <span>${x.sets.map(z=>esc(z.reps)+'×'+esc(z.peso)).join(' · ')}</span></div>`).join('')}
+            ${(()=>{const cg=exGroups(s.exercises);
+              return s.exercises.map((x,xi)=>`<div class="hist-row">
+              <span style="color:var(--txt)">${grpTag(cg[xi])}${esc(x.name)}${x.bw?'<span class="tag-pc">PC</span>':''}</span>
+              <span>${x.sets.map(z=>fmtSet(z.reps,z.peso,x.bw)).join(' · ')}</span></div>`).join('')})()}
             <div class="hist-row"><span>Volume total</span>
               <span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div></div>`;
         }
@@ -2309,14 +2370,14 @@ window.planEdit=id=>{
 window.pfSet=(k,v)=>{PF[k]=v;if(k==='type')pfSyncShots();drawPlanForm()};
 window.pfBlk=(b,k,v)=>{PF[b][k]=v;updPlanCalc()};
 // alvo de tempo/pace para rodagem, regenerativo e longão — mesma mecânica do registro (RF)
-window.pfNum=(k,v)=>{PF[k]=v;updPlanPace();};
+window.pfNum=(k,v)=>{PF[k]=v;updPlanCalc();};
 window.pfNumPace=(field,val)=>{
   const km=parseFloat(String(PF.km).replace(',','.'))||0;
   const cur=paceMS(km,pfSecs());
   const pm=field==='m'?val:cur.m, ps=field==='s'?val:cur.s;
   const sec=timeFromPaceKm(pm,ps,km);
   PF.h=Math.floor(sec/3600); PF.m=Math.floor((sec%3600)/60); PF.s=sec%60;
-  updPlanPace();
+  updPlanCalc();
 };
 function updPlanPace(){
   const box=$('pcboxP');
@@ -2390,9 +2451,11 @@ window.savePlan=async()=>{
     if(HAS_WU[PF.type]){
       rec.wu=PF.wu; rec.cd=PF.cd;
       if(PF.type==='inter'){rec.reps=PF.reps;rec.shots=PF.shots;}
-      else{rec.fk=PF.fk; if(PF.type==='fartlek')rec.reps=PF.reps;}
+      else if(PF.type==='fartlek'){rec.fk=PF.fk;rec.reps=PF.reps;}
+      else if(PF.type==='limiar'){rec.fk=PF.fk;}
       rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
     }else{
+      // (inalcançável: HAS_WU cobre todos os tipos de corrida)
       const targetSec=pfSecs();
       if(targetSec>0)rec.targetSec=targetSec;
     }
@@ -2495,7 +2558,7 @@ function drawPlanForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(PF.fk.off.s)}" placeholder="00" oninput="pfFk('off','s',this.value)">
             </div></div>`}</div></div>`;
-    }else{ // limiar
+    }else if(t==='limiar'){
       h+=`<div class="blk">
         <div class="blk-h"><span class="bi">🔺</span><span class="bt">Parte principal</span>
           <span class="bs">ritmo de limiar</span></div>
@@ -2509,10 +2572,38 @@ function drawPlanForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(PF.fk.on.s)}" placeholder="00" oninput="pfFk('on','s',this.value)">
             </div></div>`}</div></div>`;
+    }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo, opcional)
+      const pfpv2=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
+      h+=`<div class="blk">
+        <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
+        <div class="field"><label>Distância planejada (km)</label>
+          <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
+            placeholder="10.00" oninput="pfNum('km',this.value)"></div>
+        <div class="field"><label>Alvo (opcional)</label>
+          <div class="seg">
+            <button class="${!PF.paceMode?'on':''}" onclick="pfSet('paceMode',false)">Tempo</button>
+            <button class="${PF.paceMode?'on':''}" onclick="pfSet('paceMode',true)">Pace</button>
+          </div></div>
+        ${PF.paceMode?`<div class="field"><label>Pace alvo (min : s /km)</label>
+          <div class="dur2">
+            <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
+          </div></div>`:
+        `<div class="field"><label>Tempo alvo (h : min : s)</label>
+          <div class="dur-row">
+            <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
+            <div class="sep">:</div>
+            <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
+          </div></div>`}
+      </div>`;
     }
     h+=blkHTML(PF,'pfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcboxP"></div>`;
   }else{
+    // (inalcançável: HAS_WU cobre todos os tipos de corrida)
     const pfpv=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
     h+=`<div class="field"><label>Distância planejada (km)</label>
         <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
@@ -2732,7 +2823,7 @@ window.dupW=async id=>{
   const w=S.workouts.find(x=>x.id===id);
   const nw={id:uid(),name:w.name+' (cópia)',
     exercises:w.exercises.map(e=>typeof e==='string'
-      ?{name:e}:{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||''})};
+      ?{name:e}:{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:!!e.link})};
   if(w.color)nw.color=w.color;
   if(w.muscles&&w.muscles.length)nw.muscles=w.muscles.slice();
   S.workouts.push(nw);
@@ -2890,9 +2981,9 @@ function order(){
 function editW(id){
   const w=id?S.workouts.find(x=>x.id===id):{name:'',exercises:[]};
   let exs=w.exercises.map(e=>typeof e==='string'
-    ?{name:e,sets:'',reps:'',note:''}
-    :{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||''});
-  if(!exs.length)exs=[{name:'',sets:'',reps:'',note:''}];
+    ?{name:e,sets:'',reps:'',note:'',link:false}
+    :{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:!!e.link});
+  if(!exs.length)exs=[{name:'',sets:'',reps:'',note:'',link:false}];
   window.__adhoc=false;
   window.__exs=exs;
   window.__muscles=(w.muscles||[]).slice();
@@ -2952,7 +3043,8 @@ function editW(id){
     draw();
   };
   window.addEx=()=>{window.__exs.push({name:'',sets:'',reps:'',note:''});drawEx();
-    setTimeout(()=>{const n=document.querySelectorAll('.ex-blk .exn');n[n.length-1].focus()},50)};
+    setTimeout(()=>{const n=document.querySelectorAll('.ex-blk .exn');
+      if(n.length)n[n.length-1].focus();},50)};
   window.rmEx=i=>{window.__exs.splice(i,1);
     if(!window.__exs.length)window.__exs.push({name:'',sets:'',reps:'',note:''});drawEx()};
   window.exSet=(i,k,v)=>{window.__exs[i][k]=v};
@@ -2986,8 +3078,9 @@ function editW(id){
 window.saveW=async id=>{
   const name=$('wn').value.trim();
   const exs=window.__exs
-    .map(e=>({name:e.name.trim(),sets:e.sets,reps:e.reps,note:(e.note||'').trim()}))
+    .map(e=>({name:e.name.trim(),sets:e.sets,reps:e.reps,note:(e.note||'').trim(),link:!!e.link}))
     .filter(e=>e.name);
+  if(exs.length)exs[0].link=false;
   const adhoc=!id&&!!window.__adhoc;
   if(!name)return toast('Dê um nome ao treino');
   if(!exs.length)return toast('Adicione ao menos 1 exercício');
@@ -3075,7 +3168,8 @@ function editMobW(id){
     draw();
   };
   window.addExM=()=>{window.__exsM.push({name:'',desc:''});drawExM();
-    setTimeout(()=>{const n=document.querySelectorAll('.exm-blk .exnm');n[n.length-1].focus()},50)};
+    setTimeout(()=>{const n=document.querySelectorAll('.exm-blk .exnm');
+      if(n.length)n[n.length-1].focus();},50)};
   window.rmExM=i=>{window.__exsM.splice(i,1);
     if(!window.__exsM.length)window.__exsM.push({name:'',desc:''});drawExM()};
   window.exSetM=(i,k,v)=>{window.__exsM[i][k]=v};
@@ -3138,12 +3232,121 @@ async function cleanupAdhoc(){
   if(S.workouts.length!==before)await save();
 }
 
+/* ---------- SÉRIES CONJUGADAS + REORDENAÇÃO ----------
+   A conjugação é guardada como `link:true` no exercício, significando "sem descanso
+   depois do exercício logo acima". Um grupo conjugado é, portanto, uma sequência de
+   exercícios vizinhos. Cada exercício continua sendo registrado separadamente, então
+   a evolução de carga por exercício não muda nada. */
+function exGroups(list){
+  // devolve, por índice, {gi,pos,size,first,last} quando o exercício faz parte de um conjugado
+  const info=list.map(()=>null);
+  let i=0, gi=0;
+  while(i<list.length){
+    let j=i+1;
+    while(j<list.length&&list[j].link)j++;
+    if(j-i>1){
+      for(let k=i;k<j;k++)
+        info[k]={gi,pos:k-i+1,size:j-i,first:k===i,last:k===j-1};
+      gi++;
+    }
+    i=j;
+  }
+  return info;
+}
+const GRP_LETTER=n=>String.fromCharCode(65+(n%26));
+function grpTag(g){
+  return g?`<span class="ex-tag">${GRP_LETTER(g.gi)}${g.pos}</span>`:'';
+}
+// resumo textual dos conjugados de uma sessão (usado no relatório .md)
+function supersetSummary(exs){
+  const gi=exGroups(exs), out=[]; let cur=null;
+  exs.forEach((e,i)=>{
+    const g=gi[i];
+    if(!g){cur=null;return;}
+    if(g.first){cur={l:GRP_LETTER(g.gi),names:[e.name]};out.push(cur);}
+    else if(cur)cur.names.push(e.name);
+  });
+  return out;
+}
+// lista compacta com setas de ordem (e, opcionalmente, botões de conjugar entre linhas)
+let ordMode=false;
+window.tgOrdMode=()=>{ordMode=!ordMode;render()};
+function ordListHTML(list,moveFn,linkFn,allowLink){
+  const gi=exGroups(list);
+  let h=`<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-bottom:14px">
+    Use <b style="color:var(--txt)">↑ ↓</b> para mudar a ordem de execução.${allowLink?`
+    Toque em <b style="color:var(--txt)">conjugar</b> entre dois exercícios para fazer
+    série conjugada (bi-set/tri-set: sem descanso entre eles). Cada exercício continua
+    sendo registrado separadamente, então a evolução de carga de cada um não se perde.`:''}</div>`;
+  list.forEach((ex,i)=>{
+    if(allowLink&&i>0){
+      const on=!!ex.link;
+      h+=`<div class="lnk-row">
+        <button class="lnk-btn ${on?'on':''}" onclick="${linkFn}(${i})">${on?'🔗 conjugado':'+ conjugar'}</button>
+        <div class="lnk-line"></div></div>`;
+    }
+    const g=gi[i];
+    h+=`<div class="ord-row2 ${g?'ing':''}">
+      <span class="on2">${g?GRP_LETTER(g.gi)+g.pos:(i+1)}</span>
+      <span class="onm">${esc(ex.name)}${ex.temp?' <span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}</span>
+      <button class="ord-btn2" ${i===0?'disabled':''} onclick="${moveFn}(${i},-1)">↑</button>
+      <button class="ord-btn2" ${i===list.length-1?'disabled':''} onclick="${moveFn}(${i},1)">↓</button>
+    </div>`;
+  });
+  return h;
+}
+// troca dois exercícios de lugar mantendo a conjugação presa à POSIÇÃO, não ao
+// exercício: assim, trocar a ordem dentro de um bi-set preserva o bi-set, que é o
+// caso comum de "a máquina está ocupada, vou inverter".
+function swapKeepingLinks(L,i,dir){
+  const j=i+dir;
+  if(j<0||j>=L.length)return false;
+  const la=L[i].link, lb=L[j].link;
+  const t=L[i]; L[i]=L[j]; L[j]=t;
+  L[i].link=la; L[j].link=lb;
+  if(L.length)L[0].link=false;
+  return true;
+}
+window.moveLiveEx=(i,d)=>{if(swapKeepingLinks(live.exercises,i,d))render()};
+window.tgLink=i=>{
+  if(i<=0)return;
+  live.exercises[i].link=!live.exercises[i].link;
+  render();
+};
+window.moveLiveExM=(i,d)=>{if(swapKeepingLinks(liveM.exercises,i,d))render()};
+// grava a ordem (e as conjugações) atuais como padrão do treino salvo
+async function saveOrderInto(target,liveList){
+  const byName={};
+  target.exercises.forEach(e=>{byName[e.name]=e});
+  const next=[];
+  liveList.forEach(ex=>{
+    if(ex.temp)return;                    // exercício avulso não entra no treino salvo
+    const base=byName[ex.name]||{name:ex.name};
+    delete byName[ex.name];
+    next.push(Object.assign({},base,{name:ex.name,link:!!ex.link}));
+  });
+  // segurança: exercícios do treino que não estavam nesta sessão vão para o fim
+  Object.keys(byName).forEach(k=>next.push(byName[k]));
+  if(next.length)next[0].link=false;
+  target.exercises=next;
+  await save();
+}
+window.saveOrderDefault=async()=>{
+  await saveOrderInto(cur,live.exercises);
+  toast('Ordem e conjugações salvas no treino');
+};
+window.saveOrderDefaultM=async()=>{
+  await saveOrderInto(curM,liveM.exercises);
+  toast('Ordem salva no treino');
+};
+
 /* ---------- SESSÃO DE MOBILIDADE ---------- */
 let curM=null, liveM=null, t0M=null, tickM=null;
 window.openMobW=id=>{
   curM=S.workouts.find(w=>w.id===id);
   liveM={wid:id,name:curM.name,date:Date.now(),
     exercises:curM.exercises.map(e=>({name:e.name,desc:e.desc||'',done:false}))};
+  ordMode=false;
   t0M=Date.now();
   clearInterval(tickM);
   tickM=setInterval(()=>{
@@ -3162,11 +3365,26 @@ function mobSession(){
   const wc=wColor(curM);
   if(wc)h+=`<div style="height:3px;background:${wc};border-radius:2px;margin:0 0 12px"></div>`;
   h+=mobPillHTML(curM);
+
+  // --- modo reordenar ---
+  if(ordMode){
+    h+=ordListHTML(liveM.exercises,'moveLiveExM','',false);
+    h+=`<button class="btn-ghost btn-sm" style="width:100%;margin-top:16px" onclick="saveOrderDefaultM()">
+      💾 Salvar esta ordem no treino</button>
+      <div style="font-size:11px;color:var(--dim);line-height:1.5;margin-top:8px">
+        Sem salvar, a ordem vale só para o treino de hoje.</div>`;
+    $('app').innerHTML=h;
+    $('fab').innerHTML='<button class="fab btn-g" style="bottom:calc(env(safe-area-inset-bottom) + 18px)" onclick="tgOrdMode()">✓ Pronto</button>';
+    return;
+  }
+
+  h+=`<button class="btn-ghost btn-sm" style="width:100%;margin:0 0 14px" onclick="tgOrdMode()">
+    🔀 Reordenar exercícios</button>`;
   liveM.exercises.forEach((ex,i)=>{
     h+=`<div class="ex-block">
       <div class="ex-head" style="align-items:flex-start">
         <div style="flex:1">
-          <strong>${esc(ex.name)}</strong>
+          <strong>${esc(ex.name)}${ex.temp?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}</strong>
           ${ex.desc?`<div class="prev" style="margin:4px 0 0">${esc(ex.desc)}</div>`:''}
         </div>
         <label class="bw-tog ${ex.done?'on':''}" style="flex:none">
@@ -3174,9 +3392,61 @@ function mobSession(){
       </div>
     </div>`;
   });
+  h+=`<button class="btn-ghost btn-sm" style="width:100%;margin:2px 0 16px" onclick="openAddExMob()">+ Adicionar exercício</button>`;
   $('app').innerHTML=h;
   $('fab').innerHTML='<button class="fab btn-g" style="bottom:calc(env(safe-area-inset-bottom) + 18px)" onclick="finishMob()">✓ Finalizar treino</button>';
 }
+/* ---------- ADICIONAR EXERCÍCIO DURANTE A SESSÃO (mobilidade) ---------- */
+window.openAddExMob=()=>{
+  window.__newExM={name:'',desc:''};
+  window.__newExMOnce=false;
+  const draw=()=>{
+    const once=window.__newExMOnce;
+    $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+      <div class="modal-in">
+        <h2>Adicionar exercício</h2>
+        <div class="field"><label>Nome do exercício</label>
+          <input id="nexm" value="${esc(window.__newExM.name)}" placeholder="Ex: Alongamento de panturrilha"
+            oninput="newExMSet('name',this.value)"></div>
+        <div class="field" style="margin:9px 0 0"><label>Como executar</label>
+          <textarea rows="2" placeholder="Descreva a execução do exercício"
+            oninput="newExMSet('desc',this.value)">${esc(window.__newExM.desc)}</textarea></div>
+        <button class="adhoc-t ${once?'on':''}" style="margin-top:14px" onclick="tgNewExMOnce()">
+          <input type="checkbox" ${once?'checked':''} onclick="event.stopPropagation();tgNewExMOnce()">
+          ⚡ Só nesta sessão</button>
+        <div class="adhoc-hint">${once
+          ?'Este exercício entra só no treino de hoje — o treino salvo não muda.'
+          :'Este exercício passa a fazer parte do treino a partir de agora, entrando nas próximas execuções também.'}</div>
+        <div class="row" style="margin-top:16px">
+          <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+          <button class="btn-a" onclick="confirmAddExMob()">Adicionar</button>
+        </div>
+      </div></div>`;
+    setTimeout(()=>{const el=$('nexm');if(el)el.focus()},150);
+  };
+  window.newExMSet=(k,v)=>{window.__newExM[k]=v};
+  window.tgNewExMOnce=()=>{
+    const el=$('nexm'); if(el)window.__newExM.name=el.value;
+    window.__newExMOnce=!window.__newExMOnce;
+    draw();
+  };
+  draw();
+};
+window.confirmAddExMob=async()=>{
+  const name=($('nexm').value||'').trim();
+  if(!name)return toast('Dê um nome ao exercício');
+  if(liveM.exercises.some(e=>e.name.toLowerCase()===name.toLowerCase()))
+    return toast('Já existe um exercício com esse nome nesta sessão');
+  const desc=(window.__newExM.desc||'').trim();
+  const once=window.__newExMOnce;
+  liveM.exercises.push({name,desc,done:false,temp:once});
+  if(!once){
+    curM.exercises.push({name,desc});
+    await save();
+  }
+  closeM();render();
+  toast(once?'Exercício adicionado só nesta sessão':'Exercício adicionado ao treino');
+};
 window.setMobDone=(i,v)=>{liveM.exercises[i].done=v};
 window.finishMob=async()=>{
   const ex=liveM.exercises.filter(e=>e.done).map(e=>({name:e.name,desc:e.desc}));
@@ -3207,9 +3477,11 @@ window.openW=(id,plan)=>{
       const p=prevSets(id,e.name);
       const tg=liveTargets[e.name];
       const n=tg&&parseInt(tg.sets)?parseInt(tg.sets):(p?p.sets.length:3);
-      return{name:e.name,bw:p?!!p.bw:false,
+      return{name:e.name,bw:p?!!p.bw:false,link:!!e.link,
         sets:Array.from({length:n},()=>({reps:'',peso:''}))};
     })};
+  if(live.exercises.length)live.exercises[0].link=false;
+  ordMode=false;
   t0=Date.now(); // usado só para calcular a duração da sessão ao finalizar (sem cronômetro visível)
   clearInterval(tick);
   view='session';render();
@@ -3223,6 +3495,19 @@ function session(){
   const wc=wColor(cur);
   if(wc)h+=`<div style="height:3px;background:${wc};border-radius:2px;margin:0 0 12px"></div>`;
   h+=musclesPillHTML(cur.muscles);
+
+  // --- modo reordenar / conjugar ---
+  if(ordMode){
+    h+=ordListHTML(live.exercises,'moveLiveEx','tgLink',true);
+    h+=`<button class="btn-ghost btn-sm" style="width:100%;margin-top:16px" onclick="saveOrderDefault()">
+      💾 Salvar esta ordem e as conjugações no treino</button>
+      <div style="font-size:11px;color:var(--dim);line-height:1.5;margin-top:8px">
+        Sem salvar, a ordem e as conjugações valem só para o treino de hoje.</div>`;
+    $('app').innerHTML=h;
+    $('fab').innerHTML='<button class="fab btn-g" style="bottom:calc(env(safe-area-inset-bottom) + 18px)" onclick="tgOrdMode()">✓ Pronto</button>';
+    return;
+  }
+
   const ld=new Date(live.date);
   const ldv=`${ld.getFullYear()}-${String(ld.getMonth()+1).padStart(2,'0')}-${String(ld.getDate()).padStart(2,'0')}`;
   const backfill=dayKey(live.date)!==dayKey(Date.now());
@@ -3232,10 +3517,18 @@ function session(){
       <div style="font-size:11.5px;color:var(--dim)">${backfill?'⚠️ Lançando para outro dia, não hoje':'Esqueceu de registrar no dia? Toque para ajustar a data.'}</div>
     </div>
     <input type="date" style="width:auto;flex:none" value="${ldv}" onchange="setLiveDate(this.value)"></div>`;
+  h+=`<button class="btn-ghost btn-sm" style="width:100%;margin:0 0 14px" onclick="tgOrdMode()">
+    🔀 Reordenar / conjugar exercícios</button>`;
+  const gi=exGroups(live.exercises);
   live.exercises.forEach((ex,i)=>{
     const p=prevSets(live.wid,ex.name);
+    const g=gi[i];
+    if(g&&g.first){
+      h+=`<div class="grp"><div class="grp-hd">🔗 Conjugado ${GRP_LETTER(g.gi)}
+        <span class="gh-sub">${g.size} exercícios · sem descanso entre eles</span></div>`;
+    }
     h+=`<div class="ex-block">
-      <div class="ex-head"><strong>${esc(ex.name)}</strong>
+      <div class="ex-head"><strong>${grpTag(g)}${esc(ex.name)}${ex.temp?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}</strong>
         <div style="display:flex;align-items:center;gap:10px">
         <label class="bw-tog ${ex.bw?'on':''}">
           <input type="checkbox" ${ex.bw?'checked':''} onchange="setBW(${i},this.checked)">PC</label>
@@ -3246,7 +3539,7 @@ function session(){
       const dias=Math.round((Date.now()-p.date)/86400000);
       const quando=dias===0?'hoje':dias===1?'ontem':`há ${dias} dias`;
       h+='<div class="prev">Última vez'+(p.bw?' <span class="tag-pc">PESO CORPORAL</span>':'')+': '+
-        p.sets.map((s,n)=>`<span class="pill">${n+1}ª <b>${esc(s.reps)}×${esc(s.peso)}kg</b></span>`).join('')+
+        p.sets.map((s,n)=>`<span class="pill">${n+1}ª <b>${p.bw?esc(s.reps)+' reps':esc(s.reps)+'×'+esc(s.peso)+'kg'}</b></span>`).join('')+
         `<div style="margin-top:5px;font-size:11px;opacity:.8">${quando}${sameW?'':' · em '+esc(p.wname)}</div></div>`;
     }else{
       h+='<div class="prev">Sem registro anterior deste exercício.</div>';
@@ -3272,14 +3565,78 @@ function session(){
         <input type="number" inputmode="numeric" pattern="[0-9]*" value="${esc(s.reps)}"
           placeholder="${pr?esc(pr.reps):'–'}" onchange="setV(${i},${j},'reps',this.value)">
         <input type="number" inputmode="decimal" step="0.5" value="${esc(s.peso)}"
-          placeholder="${pr?esc(pr.peso):'–'}" onchange="setV(${i},${j},'peso',this.value)">
+          placeholder="${ex.bw?'—':(pr?esc(pr.peso):'–')}" ${ex.bw?'disabled':''}
+          onchange="setV(${i},${j},'peso',this.value)">
         <button class="del" onclick="rmSet(${i},${j})">✕</button></div>`;
     });
     h+='</div></div>';
+    if(g&&g.last)h+='</div>';
   });
+  h+=`<button class="btn-ghost btn-sm" style="width:100%;margin:2px 0 16px" onclick="openAddEx()">+ Adicionar exercício</button>`;
   $('app').innerHTML=h;
   $('fab').innerHTML='<button class="fab btn-g" style="bottom:calc(env(safe-area-inset-bottom) + 18px)" onclick="finish()">✓ Finalizar treino</button>';
 }
+/* ---------- ADICIONAR EXERCÍCIO DURANTE A SESSÃO (musculação) ---------- */
+window.openAddEx=()=>{
+  window.__newEx={name:'',sets:'',reps:'',note:''};
+  window.__newExOnce=false;
+  const draw=()=>{
+    const once=window.__newExOnce;
+    $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+      <div class="modal-in">
+        <h2>Adicionar exercício</h2>
+        <div class="field"><label>Nome do exercício</label>
+          <input id="nex" value="${esc(window.__newEx.name)}" placeholder="Ex: Crucifixo"
+            oninput="newExSet('name',this.value)"></div>
+        <div class="mini-row">
+          <div class="mini-f"><label>Séries</label>
+            <input type="number" inputmode="numeric" value="${esc(window.__newEx.sets)}"
+              placeholder="3" oninput="newExSet('sets',this.value)"></div>
+          <div class="mini-f"><label>Reps</label>
+            <input type="number" inputmode="numeric" value="${esc(window.__newEx.reps)}"
+              placeholder="10" oninput="newExSet('reps',this.value)"></div>
+        </div>
+        <div class="field" style="margin:9px 0 0"><label>Observação (opcional)</label>
+          <input value="${esc(window.__newEx.note)}" placeholder="Ex: cadência lenta na descida"
+            oninput="newExSet('note',this.value)"></div>
+        <button class="adhoc-t ${once?'on':''}" style="margin-top:14px" onclick="tgNewExOnce()">
+          <input type="checkbox" ${once?'checked':''} onclick="event.stopPropagation();tgNewExOnce()">
+          ⚡ Só nesta sessão</button>
+        <div class="adhoc-hint">${once
+          ?'Este exercício entra só no treino de hoje — o treino salvo não muda.'
+          :'Este exercício passa a fazer parte do treino a partir de agora, entrando nas próximas execuções também.'}</div>
+        <div class="row" style="margin-top:16px">
+          <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+          <button class="btn-a" onclick="confirmAddEx()">Adicionar</button>
+        </div>
+      </div></div>`;
+    setTimeout(()=>{const el=$('nex');if(el)el.focus()},150);
+  };
+  window.newExSet=(k,v)=>{window.__newEx[k]=v};
+  window.tgNewExOnce=()=>{
+    const el=$('nex'); if(el)window.__newEx.name=el.value;
+    window.__newExOnce=!window.__newExOnce;
+    draw();
+  };
+  draw();
+};
+window.confirmAddEx=async()=>{
+  const name=($('nex').value||'').trim();
+  if(!name)return toast('Dê um nome ao exercício');
+  if(live.exercises.some(e=>e.name.toLowerCase()===name.toLowerCase()))
+    return toast('Já existe um exercício com esse nome nesta sessão');
+  const sets=window.__newEx.sets, reps=window.__newEx.reps, note=(window.__newEx.note||'').trim();
+  const once=window.__newExOnce;
+  const n=parseInt(sets)||3;
+  live.exercises.push({name,bw:false,sets:Array.from({length:n},()=>({reps:'',peso:''})),temp:once});
+  if(live.targets&&(sets||reps||note))live.targets[name]={sets:sets||'',reps:reps||'',note};
+  if(!once){
+    cur.exercises.push({name,sets:sets||'',reps:reps||'',note});
+    await save();
+  }
+  closeM();render();
+  toast(once?'Exercício adicionado só nesta sessão':'Exercício adicionado ao treino');
+};
 window.setLiveDate=v=>{
   const [y,m,d]=v.split('-').map(Number);
   const o=new Date(live.date); o.setFullYear(y,m-1,d); live.date=o.getTime();
@@ -3291,14 +3648,27 @@ window.rmTarget=i=>{
   render();
 };
 window.setV=(i,j,k,v)=>{live.exercises[i].sets[j][k]=v};
-window.setBW=(i,v)=>{live.exercises[i].bw=v;render()};
+window.setBW=(i,v)=>{
+  const ex=live.exercises[i];
+  ex.bw=v;
+  // peso corporal: a carga do dia não importa, só reps — limpa o que já tinha
+  if(v)ex.sets.forEach(s=>{s.peso=''});
+  render();
+};
 window.addSet=i=>{const st=live.exercises[i].sets;
+  const bw=live.exercises[i].bw;
   const last=st[st.length-1]||{reps:'',peso:''};
-  st.push({reps:last.reps,peso:last.peso});render()};
+  st.push({reps:last.reps,peso:bw?'':last.peso});render()};
 window.rmSet=(i,j)=>{live.exercises[i].sets.splice(j,1);render()};
 window.finish=async()=>{
-  const ex=live.exercises.map(e=>({name:e.name,bw:!!e.bw,
-    sets:e.sets.filter(s=>s.reps!==''||s.peso!=='')})).filter(e=>e.sets.length);
+  // guarda o índice original para não deixar um conjugado "órfão" quando o
+  // exercício de cima da dupla não foi preenchido e some do registro
+  const kept=live.exercises.map((e,idx)=>({e,idx,
+    sets:e.sets.filter(s=>s.reps!==''||s.peso!=='')})).filter(x=>x.sets.length);
+  const keptIdx=new Set(kept.map(x=>x.idx));
+  const ex=kept.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
+    link:n>0&&!!x.e.link&&keptIdx.has(x.idx-1),
+    sets:x.sets}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
   const dur=Math.floor((Date.now()-t0)/60000);
@@ -3473,9 +3843,10 @@ function hist(){
     h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c}"`:''}><div class="hist-row">
       <strong>🏋️ ${esc(s.name)}</strong><span>${fdateW(s.date)}${s.dur?' · '+s.dur+'min':''}</span></div>
       ${musclesPillHTML(s.muscles)}`;
-    s.exercises.forEach(e=>{
-      h+=`<div class="hist-row"><span style="color:var(--txt)">${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
-        <span>${e.sets.map(x=>esc(x.reps)+'×'+esc(x.peso)).join(' · ')}</span></div>`;
+    const hg=exGroups(s.exercises);
+    s.exercises.forEach((e,ei)=>{
+      h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
+        <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
     });
     h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
     h+=`<div class="row" style="margin-top:10px">
@@ -3498,7 +3869,7 @@ window.editHist=id=>{
   const s=S.history.find(x=>x.id===id); if(!s)return;
   window.__ehId=id;
   window.__ehDate=s.date;
-  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,
+  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,link:!!e.link,
     sets:e.sets.map(st=>({reps:st.reps,peso:st.peso}))}));
   drawEditHist();
 };
@@ -3529,7 +3900,7 @@ function drawEditHist(){
           <input type="number" inputmode="numeric" pattern="[0-9]*" value="${esc(st.reps)}"
             placeholder="–" oninput="ehVal(${i},${j},'reps',this.value)">
           <input type="number" inputmode="decimal" step="0.5" value="${esc(st.peso)}"
-            placeholder="–" oninput="ehVal(${i},${j},'peso',this.value)">
+            placeholder="${ex.bw?'—':'–'}" ${ex.bw?'disabled':''} oninput="ehVal(${i},${j},'peso',this.value)">
           <button class="del" onclick="ehRmSet(${i},${j})">✕</button></div>`).join('')}
       </div></div>`;
   });
@@ -3544,17 +3915,25 @@ window.ehDate=v=>{
   const [y,m,dd]=v.split('-').map(Number);
   const o=new Date(window.__ehDate); o.setFullYear(y,m-1,dd); window.__ehDate=o.getTime();
 };
-window.ehBW=(i,v)=>{window.__ehExs[i].bw=v;drawEditHist();};
+window.ehBW=(i,v)=>{
+  const ex=window.__ehExs[i];
+  ex.bw=v;
+  if(v)ex.sets.forEach(s=>{s.peso=''});
+  drawEditHist();
+};
 window.ehVal=(i,j,k,v)=>{window.__ehExs[i].sets[j][k]=v;};
 window.ehAddSet=i=>{const st=window.__ehExs[i].sets;
+  const bw=window.__ehExs[i].bw;
   const last=st[st.length-1]||{reps:'',peso:''};
-  st.push({reps:last.reps,peso:last.peso});drawEditHist();};
+  st.push({reps:last.reps,peso:bw?'':last.peso});drawEditHist();};
 window.ehRmSet=(i,j)=>{window.__ehExs[i].sets.splice(j,1);drawEditHist();};
 window.saveEditHist=async()=>{
   const s=S.history.find(x=>x.id===window.__ehId); if(!s)return;
-  const exs=window.__ehExs
-    .map(e=>({name:e.name,bw:!!e.bw,sets:e.sets.filter(st=>st.reps!==''||st.peso!=='')}))
-    .filter(e=>e.sets.length);
+  const keptE=window.__ehExs.map((e,idx)=>({e,idx,
+    sets:e.sets.filter(st=>st.reps!==''||st.peso!=='')})).filter(x=>x.sets.length);
+  const keptEi=new Set(keptE.map(x=>x.idx));
+  const exs=keptE.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
+    link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),sets:x.sets}));
   if(!exs.length)return toast('Mantenha ao menos uma série preenchida');
   s.date=window.__ehDate;
   s.exercises=exs;
@@ -3749,7 +4128,7 @@ function repExercise(){
       :d<0?`<span class="down">▼ ${d.toFixed(1)}</span>`:'<span class="flat">=</span>';
     h+=`<div class="hist-row">
       <span style="color:var(--txt)">${fdate(p.d)} <span class="pill">${esc(p.w)}</span>${p.bw?'<span class="tag-pc">PC</span>':''}</span>
-      <span>${p.sets.map(s=>esc(s.reps)+'×'+esc(s.peso)).join(' · ')} ${tag}</span></div>`;
+      <span>${p.sets.map(s=>fmtSet(s.reps,s.peso,p.bw)).join(' · ')} ${tag}</span></div>`;
   });
   h+='</div>';
   return h;
@@ -3890,7 +4269,7 @@ function buildMD(){
       pts.forEach(p=>{
         const mx=p.sets.reduce((a,s)=>Math.max(a,parseFloat(s.peso)||0),0);
         const vol=p.sets.reduce((a,s)=>a+(parseFloat(s.reps)||0)*(parseFloat(s.peso)||0),0);
-        L.push(`| ${fd(p.date)} | ${p.w} | ${p.sets.map(s=>`${s.reps}×${s.peso}`).join(', ')} | ${mx} | ${Math.round(vol)} |`);
+        L.push(`| ${fd(p.date)} | ${p.w} | ${p.sets.map(s=>p.bw?`${s.reps} reps`:`${s.reps}×${s.peso}`).join(', ')} | ${mx} | ${Math.round(vol)} |`);
       });
       if(pts.length>1){
         const f=pts[0].sets.reduce((a,s)=>Math.max(a,parseFloat(s.peso)||0),0);
@@ -3994,7 +4373,9 @@ function buildMD(){
         b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
       const w=S.workouts.find(x=>x.id===s.wid);
       const mtag=(s.muscles&&s.muscles.length)?' ['+s.muscles.map(k=>{const g=muscleG(k);return g?g[1]:k}).join(', ')+']':'';
-      L.push(`| ${fd(s.date)} | Musculação | ${s.name}${mtag}${w&&w.adhoc?' (esporádico)':''}: ${s.exercises.length} exercícios, volume ${Math.round(vol)} kg${s.dur?', '+s.dur+' min':''} |`);
+      const ss=supersetSummary(s.exercises);
+      const sstag=ss.length?' · conjugados: '+ss.map(o=>`${o.l} (${o.names.join(' + ')})`).join('; '):'';
+      L.push(`| ${fd(s.date)} | Musculação | ${s.name}${mtag}${w&&w.adhoc?' (esporádico)':''}: ${s.exercises.length} exercícios, volume ${Math.round(vol)} kg${s.dur?', '+s.dur+' min':''}${sstag} |`);
     }
   });
   L.push('');
@@ -4020,7 +4401,7 @@ function buildMD(){
   L.push('');
   L.push('---');
   L.push('');
-  L.push('_Dados exportados do app pessoal de registro de treinos. Esforço da corrida é classificado pelo teste da fala (Leve/Moderado/Forte/Muito forte). "PC" indica exercício feito com peso corporal._');
+  L.push('_Dados exportados do app pessoal de registro de treinos. Esforço da corrida é classificado pelo teste da fala (Leve/Moderado/Forte/Muito forte). "PC" indica exercício feito com peso corporal. "Conjugados" são exercícios executados em sequência sem descanso entre eles (bi-set/tri-set) — cada um segue registrado separadamente._');
   return L.join('\n');
 }
 window.exportMD=()=>{

@@ -1233,7 +1233,13 @@ window.runForm=id=>{
   if(!RF.level)RF.level=runLevel(RF)||'moderado'; // compat com registros antigos em RPE numérico
   RF.tmode='time';
   if(r){
-    const t=r.sec||0;
+    // "km"/"sec" no registro salvo são o TOTAL (aquecimento + parte principal + desaquecimento);
+    // para rodagem/regenerativo/longão, o formulário edita só a parte principal (RF.km, RF.h/m/s),
+    // então usamos mainKm/mainSec quando existirem — sem isso, reabrir pra editar e salvar de novo
+    // fazia o aquecimento/desaquecimento serem somados de novo ao total a cada edição
+    const mainKm=r.mainKm!==undefined?r.mainKm:r.km;
+    RF.km=(mainKm===undefined||mainKm===null)?'':mainKm;
+    const t=r.mainSec!==undefined?r.mainSec:(r.sec||0);
     RF.h=Math.floor(t/3600)||'';RF.m=Math.floor((t%3600)/60);RF.s=t%60||'';
     RF.wu=r.wu||blank(); RF.cd=r.cd||blank();
     RF.reps=r.reps||6; RF.shots=r.shots||[];
@@ -2423,7 +2429,15 @@ window.planEdit=id=>{
   if(p.kind==='gym')return; // planejamento de musculação foi descontinuado
   if(p.doneId)return toast('Este treino já foi executado');
   PF=Object.assign(pfBlank(),JSON.parse(JSON.stringify(p)));
-  if(p.targetSec){PF.h=Math.floor(p.targetSec/3600);PF.m=Math.floor((p.targetSec%3600)/60);PF.s=p.targetSec%60;}
+  // "km" no plano salvo é o TOTAL (aquecimento + parte principal + desaquecimento); para
+  // rodagem/regenerativo/longão o formulário edita só a parte principal, então usamos
+  // mainKm/mainSec quando existirem (senão o aquecimento/desaquecimento eram somados de novo
+  // ao total a cada edição, e o alvo de tempo aparecia em branco). "targetSec" é o formato
+  // antigo, de antes do aquecimento valer pra esses tipos — mantido por compatibilidade.
+  const mainKm=p.mainKm!==undefined?p.mainKm:p.km;
+  PF.km=(mainKm===undefined||mainKm===null)?'':mainKm;
+  const mainSec=p.mainSec!==undefined?p.mainSec:(p.targetSec||0);
+  if(mainSec){PF.h=Math.floor(mainSec/3600);PF.m=Math.floor((mainSec%3600)/60);PF.s=mainSec%60;}
   pfSyncShots();
   drawPlanForm();
 };

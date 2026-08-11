@@ -799,6 +799,10 @@ function config(){
   h+=`<button class="mcard" onclick="openNotif()">
     <span class="mi">🔔</span><span class="mt">Notificações</span>
     <span class="mv">${notifN?notifN:'—'}</span><span class="mc">›</span></button>`;
+  h+='<div class="sec-lbl">Progresso</div>';
+  h+=`<button class="mcard" onclick="openEvolucao()">
+    <span class="mi">📊</span><span class="mt">Evolução<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Gráficos e histórico de performance</div></span>
+    <span class="mc">›</span></button>`;
   h+='<div class="sec-lbl">Preferências</div>';
   h+=`<button class="mcard" onclick="openGoals()">
     <span class="mi">🎯</span><span class="mt">Metas de treino<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Semanal, mensal e anual</div></span>
@@ -879,14 +883,16 @@ window.preset=async(w,m,y)=>{
 };
 
 /* ---------- TAB BAR ---------- */
-const TABS=[['home','🏋️','Treinos'],['cal','📅','Calendário'],
-  ['rep','📊','Evolução'],['hist','🕘','Histórico'],['cfg','⚙️','Ajustes']];
+const TABS=[['home','🏋️','Treinos'],['plan','📋','Plano'],
+  ['hist','🕘','Histórico'],['cfg','⚙️','Ajustes']];
+let histView='list'; // 'list' ou 'cal' — o Calendário é um modo de visualização do Histórico
 function drawTabs(){
   const isRun=mod==='run', isMob=mod==='mobility';
-  const cur=(view==='home'||view==='run'||view==='mob'||view==='plan')?'home':
-    (view==='rep'||view==='runrep'||view==='moborep')?'rep':
-    ['hist','cfg','cal'].includes(view)?view:
-    (view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif')?'cfg':'';
+  const cur=(view==='home'||view==='run'||view==='mob')?'home':
+    view==='plan'?'plan':
+    (view==='hist'||view==='cal')?'hist':
+    (view==='cfg'||view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'||
+      view==='rep'||view==='runrep'||view==='moborep')?'cfg':'';
   const notifN=notifications().length;
   $('tabbar').innerHTML=TABS.map(([v,i,l])=>{
     const ic=v==='home'?(isRun?'🏃':isMob?'🧘':i):i;
@@ -907,18 +913,24 @@ window.goTab=async v=>{
     await cleanupAdhoc();
   }
   if(v==='home')view=mod==='run'?'run':(mod==='mobility'?'mob':'home');
-  else if(v==='rep')view=mod==='run'?'runrep':(mod==='mobility'?'moborep':'rep');
+  else if(v==='plan'){plRef=plRef||new Date();view='plan';}
   else if(v==='hist'){
-    if(view!=='hist'){hFlt=mod==='run'?'run':(mod==='mobility'?'mobility':'gym');
+    if(view!=='hist'&&view!=='cal'){hFlt=mod==='run'?'run':(mod==='mobility'?'mobility':'gym');
       hRunT='all';hGymW='all';hGymM='all';hMobW='all';}
-    view='hist';
-  }
-  else if(v==='cal'){
-    calRef=calRef||new Date();
-    calSel=calSel||dayKey(Date.now());
-    view='cal';
+    if(histView==='cal'){calRef=calRef||new Date();calSel=calSel||dayKey(Date.now());view='cal';}
+    else view='hist';
   }
   else view=v;
+  repSel='';render();
+};
+window.setHistView=v=>{
+  histView=v;
+  if(v==='cal'){calRef=calRef||new Date();calSel=calSel||dayKey(Date.now());view='cal';}
+  else view='hist';
+  render();
+};
+window.openEvolucao=()=>{
+  view=mod==='run'?'runrep':(mod==='mobility'?'moborep':'rep');
   repSel='';render();
 };
 
@@ -1897,9 +1909,9 @@ window.setCalFlt=v=>{calFlt=v;render()};
 function calendar(){
   const ref=calRef||new Date();
   const y=ref.getFullYear(), mo=ref.getMonth();
-  $('title').textContent='Calendário';
-  $('sub').textContent='Treinos do mês';
-  $('back').style.display='none';$('timer').textContent='';
+  $('title').textContent='Histórico';
+  $('sub').textContent='Calendário do mês';
+  $('back').style.display='block';$('timer').textContent='';
   const evAll=dayEvents();
   // aplica filtro
   const ev={};
@@ -1916,7 +1928,12 @@ function calendar(){
   const isFuture=y>now.getFullYear()||(y===now.getFullYear()&&mo>now.getMonth());
   const showKm=calFlt==='run';
 
-  let h=`<div class="flt">
+  let h=`<div class="seg" style="margin-bottom:12px">
+    <button class="${histView==='list'?'on':''}" onclick="setHistView('list')">🕘 Lista</button>
+    <button class="${histView==='cal'?'on':''}" onclick="setHistView('cal')">📅 Calendário</button>
+  </div>`;
+
+  h+=`<div class="flt">
     <button class="fb ${calFlt==='all'?'on':''}" onclick="setCalFlt('all')">Todos</button>
     <button class="fb ${calFlt==='gym'?'on':''}" style="--fbc:var(--accent)" onclick="setCalFlt('gym')">🏋️ Musculação</button>
     <button class="fb ${calFlt==='run'?'on':''}" style="--fbc:#5b8def" onclick="setCalFlt('run')">🏃 Corrida</button>
@@ -2036,19 +2053,26 @@ function calendar(){
     const dt=new Date(sy,sm-1,sd);
     const dows=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
     const es=ev[calSel]||[];
-    const pend=plansOn(calSel).filter(p=>!p.doneId&&p.kind==='run'&&
+    const pend=plansOn(calSel).filter(p=>!p.doneId&&
       (calFlt==='all'||p.kind===calFlt));
     h+=`<div class="day-list">
       <div class="day-hd">${sd} de ${MESES[sm-1]}
         <span class="dn">${dows[dt.getDay()]}${es.length?' · '+es.length+' treino(s)':''}</span></div>`;
     if(pend.length){
       pend.forEach(p=>{
-        const t=rType(p.type);
-        h+=`<div class="pl-item" style="--pc2:${t[3]};margin-bottom:7px;padding:10px 11px"
-          data-act="editplan" data-arg="${p.id}">
-          <div class="pi"><b>📋 Planejado: ${t[2]} ${t[1]}</b>
-            ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
-          <span class="pk">${p.km?p.km+' km':''}</span></div>`;
+        if(p.kind==='run'){
+          const t=rType(p.type);
+          h+=`<div class="pl-item" style="--pc2:${t[3]};margin-bottom:7px;padding:10px 11px"
+            data-act="editplan" data-arg="${p.id}">
+            <div class="pi"><b>📋 Planejado: ${t[2]} ${t[1]}</b>
+              ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+            <span class="pk">${p.km?p.km+' km':''}</span></div>`;
+        }else{
+          h+=`<div class="pl-item" style="--pc2:var(--accent);margin-bottom:7px;padding:10px 11px"
+            data-act="editplan" data-arg="${p.id}">
+            <div class="pi"><b>📋 Planejado: 🏋️ ${esc(gymPlanLabel(p))}</b>
+              ${p.note?`<span>${esc(p.note)}</span>`:''}</div></div>`;
+        }
       });
     }
     if(!es.length&&!pend.length){
@@ -2203,8 +2227,7 @@ async function delPlanNow(id){
   try{
     if(p.kind==='run'){const t=rType(p.type);
       nome=t[1]+(p.km?' de '+p.km+' km':'')+' em '+fdate(p.date);}
-    else{const w=S.workouts.find(x=>x.id===p.wid);
-      nome=(w?w.name:'treino')+' em '+fdate(p.date);}
+    else{nome=gymPlanLabel(p)+' em '+fdate(p.date);}
   }catch(e){nome='treino';}
   const ok=await ask('Excluir do planejamento?',nome,'Excluir',true);
   dbg('confirmacao='+ok);
@@ -2286,14 +2309,77 @@ window.plMove=n=>{const d=new Date(plRef);d.setDate(1);d.setMonth(d.getMonth()+n
 function planScreen(){
   const ref=plRef||new Date();
   const y=ref.getFullYear(), mo=ref.getMonth();
-  $('title').textContent='Planejamento';
-  $('sub').textContent='Corrida';
+  $('title').textContent='Plano';
+  $('sub').textContent=mod==='gym'?'Musculação':mod==='mobility'?'Mobilidade':'Corrida';
   $('back').style.display='block';$('timer').textContent='';
-  let h=planRun(y,mo);
+  let h=modsHTML(mod);
+  if(mod==='gym')h+=planGym(y,mo);
+  else if(mod==='mobility')h+=`<div class="empty" style="padding:30px 18px">
+    Planejamento de mobilidade ainda não disponível.<br>Toque em Corrida ou Musculação acima para planejar.</div>`;
+  else h+=planRun(y,mo);
   $('app').innerHTML=h;
   $('fab').innerHTML='';
 }
 let plDel=false;
+
+/* --- PLANO DE MUSCULAÇÃO (mês) --- */
+function planGym(y,mo){
+  const first=new Date(y,mo,1);
+  const now=new Date(); const todayK=dayKey(Date.now());
+  let h=`<div class="cal-nav">
+    <button onclick="plMove(-1)">‹</button>
+    <div class="cm">${MESES[mo]} ${y}</div>
+    <button onclick="plMove(1)">›</button></div>`;
+
+  const ws0=weekStart(first.getTime());
+  const weeks=[];
+  for(let t=ws0;t<new Date(y,mo+1,1).getTime();t+=7*86400000)weeks.push(t);
+
+  const monthPlans=plans().filter(p=>{const d=new Date(p.date);
+    return p.kind==='gym'&&d.getFullYear()===y&&d.getMonth()===mo;});
+  const monthDone=S.history.filter(r=>{const d=new Date(r.date);
+    return d.getFullYear()===y&&d.getMonth()===mo;});
+  const doneN=monthPlans.filter(p=>p.doneId).length;
+  h+=`<div class="rings" style="padding:13px">
+    <div class="run-metrics" style="justify-content:space-around">
+      <div class="rm" style="align-items:center"><b>${monthPlans.length}</b><span>planejados</span></div>
+      <div class="rm" style="align-items:center"><b>${monthDone.length}</b><span>realizados</span></div>
+      <div class="rm" style="align-items:center"><b>${monthPlans.length?Math.round(doneN/monthPlans.length*100):0}%</b><span>aderência</span></div>
+    </div></div>`;
+
+  if(!activeW('gym').length){
+    h+=`<div class="empty" style="padding:20px 14px">Crie um treino de musculação em <b>Treinos</b>
+      antes de planejar (aba Treinos).</div>`;
+  }
+
+  weeks.forEach((ws,wi)=>{
+    h+=`<div class="pl-week">
+      <div class="pl-wh"><span class="pw">Semana ${wi+1}</span></div>
+      <div class="pl-body">`;
+    for(let i=0;i<7;i++){
+      const dt=new Date(ws+i*86400000);
+      const k=dayKey(dt.getTime());
+      const inMonth=dt.getMonth()===mo;
+      const ps=plansOn(k,'gym');
+      h+=`<div class="pl-day ${k===todayK?'today':''}" style="${inMonth?'':'opacity:.35'}">
+        <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
+        <div class="pl-slot">`;
+      ps.forEach(p=>{
+        const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
+        h+=`<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+          style="--pc2:var(--accent)" ${act}>
+          <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b>
+            ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+          ${p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
+            onclick="delPlanNow('${p.id}');return false;">✕</button>`}</div>`;
+      });
+      h+=`<button class="pl-add" onclick="planNew(${dt.getTime()},'gym')">+ planejar</button>
+        </div></div>`;
+    }
+    h+='</div></div>';
+  });
+  return h;
+}
 
 /* --- PLANO DE CORRIDA (mês) --- */
 function planRun(y,mo){
@@ -2420,14 +2506,27 @@ function pfSyncShots(){
   PF.shots.length=n;
 }
 window.planNew=(ts,kind)=>{
+  if(kind==='gym'){
+    PF={id:null,kind:'gym',date:ts,mode:'workout',wid:null,targets:{},muscles:[],exercises:[],note:''};
+    drawGymPlanForm();
+    return;
+  }
   PF=Object.assign({id:null,kind,date:ts,type:'rodagem',km:'',note:''},pfBlank());
   drawPlanForm();
 };
 window.pfLevel=k=>{PF.level=k;drawPlanForm();};
 window.planEdit=id=>{
   const p=plans().find(x=>x.id===id); if(!p)return;
-  if(p.kind==='gym')return; // planejamento de musculação foi descontinuado
   if(p.doneId)return toast('Este treino já foi executado');
+  if(p.kind==='gym'){
+    PF=JSON.parse(JSON.stringify(p));
+    if(!PF.targets)PF.targets={};
+    if(!PF.muscles)PF.muscles=[];
+    if(!PF.exercises)PF.exercises=[];
+    if(!PF.mode)PF.mode=PF.wid?'workout':(PF.muscles.length?'muscles':'custom');
+    drawGymPlanForm();
+    return;
+  }
   PF=Object.assign(pfBlank(),JSON.parse(JSON.stringify(p)));
   // "km" no plano salvo é o TOTAL (aquecimento + parte principal + desaquecimento); para
   // rodagem/regenerativo/longão o formulário edita só a parte principal, então usamos
@@ -2560,10 +2659,145 @@ window.savePlan=async()=>{
     }
     S.plans=plans().filter(x=>x.id!==rec.id);
     S.plans.push(rec);
+  }else if(PF.kind==='gym'){
+    const rec={id:PF.id||uid(),kind:'gym',date:PF.date,mode:PF.mode,note:(PF.note||'').trim()};
+    if(PF.mode==='workout'){
+      if(!PF.wid)return toast('Escolha um treino');
+      rec.wid=PF.wid; rec.targets=PF.targets||{};
+    }else if(PF.mode==='muscles'){
+      if(!PF.muscles||!PF.muscles.length)return toast('Escolha pelo menos um grupo muscular');
+      rec.muscles=PF.muscles;
+    }else{ // custom
+      const exs=(PF.exercises||[]).filter(e=>(e.name||'').trim());
+      if(!exs.length)return toast('Adicione pelo menos um exercício');
+      rec.exercises=exs.map(e=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||''}));
+    }
+    S.plans=plans().filter(x=>x.id!==rec.id);
+    S.plans.push(rec);
   }
   await save();PF=null;closeM();render();toast('Planejado');
 };
 window.delPlan=id=>delPlanNow(id);
+
+/* --- formulário de plano de musculação --- */
+window.pfPickW=id=>{
+  PF.wid=id;
+  const w=S.workouts.find(x=>x.id===id);
+  if(w)w.exercises.forEach(e=>{
+    if(!PF.targets[e.name])PF.targets[e.name]={sets:e.sets||'',reps:e.reps||'',note:e.note||''};
+  });
+  drawGymPlanForm();
+};
+window.pfTarget=(i,k,v)=>{
+  const w=S.workouts.find(x=>x.id===PF.wid); if(!w)return;
+  const name=w.exercises[i].name;
+  if(!PF.targets[name])PF.targets[name]={sets:'',reps:'',note:''};
+  PF.targets[name][k]=v;
+};
+window.pfGymMode=m=>{PF.mode=m;drawGymPlanForm();};
+window.pfToggleMuscle=m=>{
+  const i=PF.muscles.indexOf(m);
+  if(i>=0)PF.muscles.splice(i,1); else PF.muscles.push(m);
+  drawGymPlanForm();
+};
+window.pfExAdd=()=>{PF.exercises.push({name:'',sets:'',reps:'',note:''});drawGymPlanForm();};
+window.pfExDel=i=>{PF.exercises.splice(i,1);drawGymPlanForm();};
+window.pfExSet=(i,k,v)=>{PF.exercises[i][k]=v;};
+function gymPlanLabel(p){
+  if(p.mode==='muscles'){
+    const names=(p.muscles||[]).map(m=>{const g=muscleG(m);return g?g[2]+' '+g[1]:m;});
+    return names.length?names.join(', '):'Musculação';
+  }
+  if(p.mode==='custom'){
+    const n=(p.exercises||[]).length;
+    return n?`${n} exercício${n>1?'s':''}`:'Personalizado';
+  }
+  const w=S.workouts.find(x=>x.id===p.wid);
+  return w?w.name:'Treino de musculação';
+}
+function drawGymPlanForm(){
+  const d=new Date(PF.date);
+  const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const w=PF.wid?S.workouts.find(x=>x.id===PF.wid):null;
+  let h=`<div class="modal" onclick="if(event.target===this)closePF()">
+    <div class="modal-in">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <h2 style="flex:1;margin:0">${PF.id?'Editar':'Planejar'} musculação</h2>
+        ${PF.id?`<button class="btn-ghost btn-sm" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35);flex:none" data-act="delplan" data-arg="${PF.id}" onclick="delPlanNow('${PF.id}');return false;">🗑 Excluir</button>`:''}
+      </div>
+      <div class="field"><label>Data</label>
+        <input type="date" value="${dv}" onchange="pfDate(this.value)"></div>
+      <div class="field"><label>Como planejar</label>
+        <div class="seg seg3">
+          <button class="${PF.mode==='workout'?'on':''}" onclick="pfGymMode('workout')">Treino salvo</button>
+          <button class="${PF.mode==='muscles'?'on':''}" onclick="pfGymMode('muscles')">Grupos</button>
+          <button class="${PF.mode==='custom'?'on':''}" onclick="pfGymMode('custom')">Personalizado</button>
+        </div></div>`;
+  if(PF.mode==='workout'){
+    h+=`<div class="field"><label>Treino</label>
+      <div class="type-grid">${activeW('gym').map(x=>
+        `<button class="type-b ${x.id===PF.wid?'on':''}" onclick="pfPickW('${x.id}')">🏋️ ${esc(x.name)}</button>`).join('')
+        ||'<div class="empty" style="padding:10px">Nenhum treino de musculação ativo.<br>Crie um em Treinos primeiro.</div>'}
+      </div></div>`;
+    if(w){
+      h+=`<div class="field"><label>Alvos por exercício <span style="color:var(--dim);font-weight:600">(opcional)</span></label></div>`;
+      w.exercises.forEach((e,i)=>{
+        const tg=PF.targets[e.name]||{sets:'',reps:'',note:''};
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bt">${esc(e.name)}</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Séries</label>
+              <input type="number" inputmode="numeric" value="${esc(tg.sets)}" placeholder="${e.sets||'3'}"
+                oninput="pfTarget(${i},'sets',this.value)"></div>
+            <div class="mini-f"><label>Reps</label>
+              <input value="${esc(tg.reps)}" placeholder="${e.reps||'12'}"
+                oninput="pfTarget(${i},'reps',this.value)"></div>
+          </div>
+          <div class="field" style="margin-top:6px"><input value="${esc(tg.note)}" placeholder="Observação (opcional)"
+            oninput="pfTarget(${i},'note',this.value)"></div>
+        </div>`;
+      });
+    }
+  }else if(PF.mode==='muscles'){
+    h+=`<div class="field"><label>Grupos musculares</label>
+      <div class="type-grid">${MUSCLE_GROUPS.map(m=>
+        `<button class="type-b ${PF.muscles.includes(m[0])?'on':''}" onclick="pfToggleMuscle('${m[0]}')">
+          <span class="te">${m[2]}</span>${m[1]}</button>`).join('')}
+      </div></div>
+      <p style="font-size:11.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px">
+        Sem exercícios definidos — só o foco do treino, pra decidir os exercícios na hora.</p>`;
+  }else{ // custom
+    h+=`<div class="field"><label>Exercícios</label></div>`;
+    PF.exercises.forEach((e,i)=>{
+      h+=`<div class="blk">
+        <div class="blk-h">
+          <input value="${esc(e.name)}" placeholder="Nome do exercício"
+            style="flex:1;background:transparent;border:none;color:var(--txt);font-size:13.5px;font-weight:700;padding:0"
+            oninput="pfExSet(${i},'name',this.value)">
+          <button class="btn-ghost btn-sm" style="color:#ff5a5a;flex:none" onclick="pfExDel(${i})">✕</button>
+        </div>
+        <div class="mini-row">
+          <div class="mini-f"><label>Séries</label>
+            <input type="number" inputmode="numeric" value="${esc(e.sets)}" placeholder="3"
+              oninput="pfExSet(${i},'sets',this.value)"></div>
+          <div class="mini-f"><label>Reps</label>
+            <input value="${esc(e.reps)}" placeholder="12"
+              oninput="pfExSet(${i},'reps',this.value)"></div>
+        </div>
+        <div class="field" style="margin-top:6px"><input value="${esc(e.note)}" placeholder="Observação (opcional)"
+          oninput="pfExSet(${i},'note',this.value)"></div>
+      </div>`;
+    });
+    h+=`<button class="btn-ghost btn-sm" style="width:100%;margin-bottom:12px" onclick="pfExAdd()">+ exercício</button>`;
+  }
+  h+=`<div class="field"><label>Instruções gerais</label>
+        <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>
+      <div class="row">
+        <button class="btn-ghost" onclick="closePF()">Cancelar</button>
+        <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
+    </div></div>`;
+  setModalHTML(h);
+}
 function drawPlanForm(){
   const d=new Date(PF.date);
   const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -3577,6 +3811,7 @@ window.finishMob=async()=>{
 
 /* ---------- SESSÃO ---------- */
 window.openW=(id,plan)=>{
+  plan=plan||matchPlan('gym',Date.now(),{wid:id});
   cur=S.workouts.find(w=>w.id===id);
   // alvos-padrão definidos na criação do treino, usados quando não há um
   // plano específico preparado para hoje (que tem prioridade)
@@ -3826,7 +4061,12 @@ function hist(){
 
   $('sub').textContent=`${gsAll.length} musculação · ${rrAll.length} corrida · ${msAll.length} mobilidade`;
 
-  let h=`<div class="flt">
+  let h=`<div class="seg" style="margin-bottom:12px">
+    <button class="${histView==='list'?'on':''}" onclick="setHistView('list')">🕘 Lista</button>
+    <button class="${histView==='cal'?'on':''}" onclick="setHistView('cal')">📅 Calendário</button>
+  </div>`;
+
+  h+=`<div class="flt">
     <button class="fb ${hFlt==='all'?'on':''}" onclick="setHFlt('all')">
       Todos <span class="fc">${gsAll.length+rrAll.length+msAll.length}</span></button>
     <button class="fb ${hFlt==='gym'?'on':''}" style="--fbc:var(--accent)" onclick="setHFlt('gym')">
@@ -4001,8 +4241,10 @@ function drawEditHist(){
         <input type="date" id="ehd" value="${dv}" onchange="ehDate(this.value)"></div>`;
   window.__ehExs.forEach((ex,i)=>{
     h+=`<div class="ex-block">
-      <div class="ex-head"><strong>${esc(ex.name)}</strong>
-        <div style="display:flex;align-items:center;gap:10px">
+      <div class="ex-head">
+        <input value="${esc(ex.name)}" oninput="ehName(${i},this.value)" placeholder="Nome do exercício"
+          style="flex:1;min-width:0;background:transparent;border:none;color:var(--txt);font-size:15px;font-weight:700;padding:4px 0">
+        <div style="display:flex;align-items:center;gap:10px;flex:none">
         <label class="bw-tog ${ex.bw?'on':''}">
           <input type="checkbox" ${ex.bw?'checked':''} onchange="ehBW(${i},this.checked)">PC</label>
         <button class="btn-sm btn-ghost" onclick="ehAddSet(${i})">+ série</button></div></div>
@@ -4036,6 +4278,7 @@ window.ehBW=(i,v)=>{
   drawEditHist();
 };
 window.ehVal=(i,j,k,v)=>{window.__ehExs[i].sets[j][k]=v;};
+window.ehName=(i,v)=>{window.__ehExs[i].name=v;};
 window.ehAddSet=i=>{const st=window.__ehExs[i].sets;
   const bw=window.__ehExs[i].bw;
   const last=st[st.length-1]||{reps:'',peso:''};
@@ -4046,7 +4289,7 @@ window.saveEditHist=async()=>{
   const keptE=window.__ehExs.map((e,idx)=>({e,idx,
     sets:e.sets.filter(st=>st.reps!==''||st.peso!=='')})).filter(x=>x.sets.length);
   const keptEi=new Set(keptE.map(x=>x.idx));
-  const exs=keptE.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
+  const exs=keptE.map((x,n)=>({name:(x.e.name||'').trim()||'Exercício',bw:!!x.e.bw,
     link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),sets:x.sets}));
   if(!exs.length)return toast('Mantenha ao menos uma série preenchida');
   s.date=window.__ehDate;
@@ -4665,13 +4908,26 @@ window.doImportPlan=inp=>{
     if(!list)return toast('Nao parece um arquivo de planejamento de corrida');
     if(!Array.isArray(S.plans))S.plans=[];
     const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level'];
+    const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
     // monta a lista de mudancas sem tocar em S.plans ainda (so aplica apos confirmacao)
     const ops=[]; // {mode:'add'|'update'|'skip'|'invalid', clean, idx}
     list.forEach(p=>{
-      if(!p||!p.date||!p.type||!RUN_TYPES.some(t=>t[0]===p.type)){ops.push({mode:'invalid'});return;}
-      const clean={id:(p.id?String(p.id):uid()),kind:'run',date:Number(p.date),
-        type:p.type,km:Number(String(p.km).replace(',','.'))||0,note:(p.note||'').trim()};
-      KEEP.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
+      if(!p||!p.date){ops.push({mode:'invalid'});return;}
+      let clean;
+      if(p.kind==='gym'){
+        const mode=p.mode||(p.wid?'workout':(Array.isArray(p.muscles)&&p.muscles.length?'muscles':'custom'));
+        const okWorkout=mode==='workout'&&p.wid;
+        const okMuscles=mode==='muscles'&&Array.isArray(p.muscles)&&p.muscles.length;
+        const okCustom=mode==='custom'&&Array.isArray(p.exercises)&&p.exercises.length;
+        if(!okWorkout&&!okMuscles&&!okCustom){ops.push({mode:'invalid'});return;}
+        clean={id:(p.id?String(p.id):uid()),kind:'gym',date:Number(p.date),mode,note:(p.note||'').trim()};
+        KEEP_GYM.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
+      }else{
+        if(!p.type||!RUN_TYPES.some(t=>t[0]===p.type)){ops.push({mode:'invalid'});return;}
+        clean={id:(p.id?String(p.id):uid()),kind:'run',date:Number(p.date),
+          type:p.type,km:Number(String(p.km).replace(',','.'))||0,note:(p.note||'').trim()};
+        KEEP.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
+      }
       const idx=S.plans.findIndex(x=>x.id===clean.id);
       if(idx>=0){
         if(S.plans[idx].doneId){ops.push({mode:'skip'});return;}
@@ -4736,8 +4992,11 @@ $('back').onclick=async()=>{
     clearInterval(tickM);
     await cleanupAdhoc();
     view='mob';
-  }else if(view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'){
+  }else if(view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'||
+    view==='rep'||view==='runrep'||view==='moborep'){
     view='cfg';
+  }else if(view==='cal'){
+    view='hist';
   }else view=mod==='run'?'run':(mod==='mobility'?'mob':'home');
   repSel='';render();
 };

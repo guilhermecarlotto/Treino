@@ -1225,10 +1225,7 @@ function runHome(){
     if(rs.length>40)h+=`<div style="text-align:center;font-size:12px;color:var(--dim);padding:8px">Mostrando os 40 mais recentes de ${rs.length}.</div>`;
   }
   $('app').innerHTML=h;
-  $('fab').innerHTML=`<div class="fab" style="display:flex;gap:8px;padding:0;background:transparent;box-shadow:none;white-space:nowrap">
-    <button style="background:#5b8def;color:#fff;padding:12px 22px;font-size:14.5px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.5);white-space:nowrap" onclick="runForm()">+ Registrar corrida</button>
-    <button style="background:#5b8def;color:#fff;padding:12px 16px;font-size:14.5px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.5);white-space:nowrap" onclick="openPlan()">📋 Planejar</button>
-  </div>`;
+  $('fab').innerHTML=`<button class="fab" style="background:#5b8def;color:#fff" onclick="runForm()">+ Registrar corrida</button>`;
 }
 
 /* --- formulário --- */
@@ -1243,7 +1240,7 @@ window.runForm=id=>{
     id:null,date:Date.now(),type:'rodagem',km:'',h:'',m:'',s:'',level:'moderado',surf:'rua',note:'',
     wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()}};
   if(!RF.level)RF.level=runLevel(RF)||'moderado'; // compat com registros antigos em RPE numérico
-  RF.tmode='time';
+  RF.tmode='pace';
   if(r){
     // "km"/"sec" no registro salvo são o TOTAL (aquecimento + parte principal + desaquecimento);
     // para rodagem/regenerativo/longão, o formulário edita só a parte principal (RF.km, RF.h/m/s),
@@ -1464,9 +1461,9 @@ function drawRunForm(){
         <input type="date" value="${dv}" onchange="rfDate(this.value)"></div>
       <div class="field"><label>Preenchimento do tempo</label>
         <div class="seg seg3">
-          <button class="${RF.tmode==='time'?'on':''}" onclick="rfSet('tmode','time')">Tempo</button>
           <button class="${RF.tmode==='pace'?'on':''}" onclick="rfSet('tmode','pace')">Pace</button>
           <button class="${RF.tmode==='speed'?'on':''}" onclick="rfSet('tmode','speed')">km/h</button>
+          <button class="${RF.tmode==='time'?'on':''}" onclick="rfSet('tmode','time')">Tempo</button>
         </div></div>`;
 
   if(structured){
@@ -1565,28 +1562,29 @@ function drawRunForm(){
     }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo)
       h+=`<div class="blk">
         <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-        <div class="field"><label>Distância (km)</label>
-          <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
-            placeholder="10.00" oninput="rfNum('km',this.value)"></div>
-        ${RF.tmode==='pace'?`<div class="field"><label>Pace (min : s /km)</label>
-          <div class="dur2">
-            <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
-          </div></div>`:
-        RF.tmode==='speed'?`<div class="field"><label>Velocidade (km/h)</label>
-          <input type="number" inputmode="decimal" step="0.1"
-            value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
-            placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
-        `<div class="field"><label>Tempo (h : min : s)</label>
-          <div class="dur-row">
-            <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
-          </div></div>`}
-      </div>`;
+        <div class="mini-row">
+          <div class="mini-f"><label>Distância (km)</label>
+            <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
+              placeholder="10.00" oninput="rfNum('km',this.value)"></div>
+          ${RF.tmode==='pace'?`<div class="mini-f"><label>Pace (min : s /km)</label>
+            <div class="dur2">
+              <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
+            </div></div>`:
+          RF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
+            <input type="number" inputmode="decimal" step="0.1"
+              value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
+              placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
+          `<div class="mini-f"><label>Tempo (h:min:s)</label>
+            <div class="dur-row">
+              <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
+            </div></div>`}
+        </div></div>`;
     }
     h+=blkHTML(RF,'rfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcbox"></div>`;
@@ -2067,6 +2065,11 @@ function calendar(){
             <div class="pi"><b>📋 Planejado: ${t[2]} ${t[1]}</b>
               ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
             <span class="pk">${p.km?p.km+' km':''}</span></div>`;
+        }else if(p.kind==='mobility'){
+          h+=`<div class="pl-item" style="--pc2:#5f9e8f;margin-bottom:7px;padding:10px 11px"
+            data-act="editplan" data-arg="${p.id}">
+            <div class="pi"><b>📋 Planejado: 🧘 ${esc(mobPlanLabel(p))}</b>
+              ${p.note?`<span>${esc(p.note)}</span>`:''}</div></div>`;
         }else{
           h+=`<div class="pl-item" style="--pc2:var(--accent);margin-bottom:7px;padding:10px 11px"
             data-act="editplan" data-arg="${p.id}">
@@ -2207,6 +2210,7 @@ function handleAct(ev){
   try{
     if(act==='delplan')delPlanNow(arg);
     else if(act==='editplan')planEdit(arg);
+    else if(act==='swapex')doSwapEx(window.__swapFiltered[parseInt(arg)]);
     else dbg('acao desconhecida: '+act);
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
 }
@@ -2227,6 +2231,7 @@ async function delPlanNow(id){
   try{
     if(p.kind==='run'){const t=rType(p.type);
       nome=t[1]+(p.km?' de '+p.km+' km':'')+' em '+fdate(p.date);}
+    else if(p.kind==='mobility'){nome=mobPlanLabel(p)+' em '+fdate(p.date);}
     else{nome=gymPlanLabel(p)+' em '+fdate(p.date);}
   }catch(e){nome='treino';}
   const ok=await ask('Excluir do planejamento?',nome,'Excluir',true);
@@ -2279,7 +2284,7 @@ function matchPlan(kind,date,extra){
     const same=cands.find(p=>p.type===extra.type);
     if(same)return same;
   }
-  if(kind==='gym'&&extra&&extra.wid){
+  if((kind==='gym'||kind==='mobility')&&extra&&extra.wid){
     const same=cands.find(p=>p.wid===extra.wid);
     if(same)return same;
   }
@@ -2303,89 +2308,53 @@ const WEEK_TPL=[
 ];
 
 let plRef=null;   // mês exibido
-window.openPlan=()=>{plRef=plRef||new Date();view='plan';render()};
 window.plMove=n=>{const d=new Date(plRef);d.setDate(1);d.setMonth(d.getMonth()+n);plRef=d;render()};
 
 function planScreen(){
   const ref=plRef||new Date();
   const y=ref.getFullYear(), mo=ref.getMonth();
   $('title').textContent='Plano';
-  $('sub').textContent=mod==='gym'?'Musculação':mod==='mobility'?'Mobilidade':'Corrida';
+  $('sub').textContent='Corrida, musculação e mobilidade';
   $('back').style.display='block';$('timer').textContent='';
-  let h=modsHTML(mod);
-  if(mod==='gym')h+=planGym(y,mo);
-  else if(mod==='mobility')h+=`<div class="empty" style="padding:30px 18px">
-    Planejamento de mobilidade ainda não disponível.<br>Toque em Corrida ou Musculação acima para planejar.</div>`;
-  else h+=planRun(y,mo);
+  let h=planCal(y,mo);
   $('app').innerHTML=h;
   $('fab').innerHTML='';
 }
 let plDel=false;
 
-/* --- PLANO DE MUSCULAÇÃO (mês) --- */
-function planGym(y,mo){
-  const first=new Date(y,mo,1);
-  const now=new Date(); const todayK=dayKey(Date.now());
-  let h=`<div class="cal-nav">
-    <button onclick="plMove(-1)">‹</button>
-    <div class="cm">${MESES[mo]} ${y}</div>
-    <button onclick="plMove(1)">›</button></div>`;
-
-  const ws0=weekStart(first.getTime());
-  const weeks=[];
-  for(let t=ws0;t<new Date(y,mo+1,1).getTime();t+=7*86400000)weeks.push(t);
-
-  const monthPlans=plans().filter(p=>{const d=new Date(p.date);
-    return p.kind==='gym'&&d.getFullYear()===y&&d.getMonth()===mo;});
-  const monthDone=S.history.filter(r=>{const d=new Date(r.date);
-    return d.getFullYear()===y&&d.getMonth()===mo;});
-  const doneN=monthPlans.filter(p=>p.doneId).length;
-  h+=`<div class="rings" style="padding:13px">
-    <div class="run-metrics" style="justify-content:space-around">
-      <div class="rm" style="align-items:center"><b>${monthPlans.length}</b><span>planejados</span></div>
-      <div class="rm" style="align-items:center"><b>${monthDone.length}</b><span>realizados</span></div>
-      <div class="rm" style="align-items:center"><b>${monthPlans.length?Math.round(doneN/monthPlans.length*100):0}%</b><span>aderência</span></div>
-    </div></div>`;
-
-  if(!activeW('gym').length){
-    h+=`<div class="empty" style="padding:20px 14px">Crie um treino de musculação em <b>Treinos</b>
-      antes de planejar (aba Treinos).</div>`;
+/* --- item de um plano no calendário (qualquer tipo) --- */
+function planItemHTML(p){
+  const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
+  const delBtn=p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
+    onclick="delPlanNow('${p.id}');return false;">✕</button>`;
+  if(p.kind==='run'){
+    const t=rType(p.type);
+    return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+      style="--pc2:${t[3]}" ${act}>
+      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>${t[2]} ${t[1]}</b>
+        ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+      <span class="pk">${p.km?p.km+' km':''}${p.targetSec?`<br>${fmtPace(paceOf(p.km,p.targetSec))}/km`:''}</span>
+      ${delBtn}</div>`;
   }
-
-  weeks.forEach((ws,wi)=>{
-    h+=`<div class="pl-week">
-      <div class="pl-wh"><span class="pw">Semana ${wi+1}</span></div>
-      <div class="pl-body">`;
-    for(let i=0;i<7;i++){
-      const dt=new Date(ws+i*86400000);
-      const k=dayKey(dt.getTime());
-      const inMonth=dt.getMonth()===mo;
-      const ps=plansOn(k,'gym');
-      h+=`<div class="pl-day ${k===todayK?'today':''}" style="${inMonth?'':'opacity:.35'}">
-        <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
-        <div class="pl-slot">`;
-      ps.forEach(p=>{
-        const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
-        h+=`<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
-          style="--pc2:var(--accent)" ${act}>
-          <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b>
-            ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
-          ${p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
-            onclick="delPlanNow('${p.id}');return false;">✕</button>`}</div>`;
-      });
-      h+=`<button class="pl-add" onclick="planNew(${dt.getTime()},'gym')">+ planejar</button>
-        </div></div>`;
-    }
-    h+='</div></div>';
-  });
-  return h;
+  if(p.kind==='mobility'){
+    return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+      style="--pc2:#5f9e8f" ${act}>
+      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🧘 ${esc(mobPlanLabel(p))}</b>
+        ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+      ${delBtn}</div>`;
+  }
+  // gym
+  return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+    style="--pc2:var(--accent)" ${act}>
+    <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b>
+      ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+    ${delBtn}</div>`;
 }
 
-/* --- PLANO DE CORRIDA (mês) --- */
-function planRun(y,mo){
+/* --- PLANO (mês) — todos os tipos de treino juntos --- */
+function planCal(y,mo){
   const first=new Date(y,mo,1);
-  const nDays=new Date(y,mo+1,0).getDate();
-  const now=new Date(); const todayK=dayKey(Date.now());
+  const todayK=dayKey(Date.now());
   let h=`<div class="cal-nav">
     <button onclick="plMove(-1)">‹</button>
     <div class="cm">${MESES[mo]} ${y}</div>
@@ -2396,14 +2365,14 @@ function planRun(y,mo){
   const weeks=[];
   for(let t=ws0;t<new Date(y,mo+1,1).getTime();t+=7*86400000)weeks.push(t);
 
-  // aviso de progressão de volume
+  // aviso de progressão de volume (corrida)
   const vols=weeks.map(ws=>weekPlans(ws).filter(p=>p.kind==='run')
     .reduce((a,p)=>a+(p.km||0),0));
   let warn='';
   for(let i=1;i<weeks.length;i++){
     if(vols[i-1]>0&&vols[i]>vols[i-1]*1.15){
       const pc=Math.round((vols[i]/vols[i-1]-1)*100);
-      warn=`⚠️ A semana de ${fdate(weeks[i]).slice(0,5)} tem ${pc}% mais volume que a anterior
+      warn=`⚠️ A semana de ${fdate(weeks[i]).slice(0,5)} tem ${pc}% mais volume de corrida que a anterior
         (${vols[i-1].toFixed(0)} → ${vols[i].toFixed(0)} km). Aumentos acima de ~10% por semana
         elevam o risco de lesão.`;
       break;
@@ -2411,15 +2380,27 @@ function planRun(y,mo){
   }
   if(warn)h+=`<div class="warn">${warn}</div>`;
 
-  const mTot=vols.reduce((a,b)=>a+b,0);
-  const mDone=runs().filter(r=>{const d=new Date(r.date);
-    return d.getFullYear()===y&&d.getMonth()===mo}).reduce((a,r)=>a+r.km,0);
+  const monthPlans=plans().filter(p=>{const d=new Date(p.date);
+    return d.getFullYear()===y&&d.getMonth()===mo;});
+  const monthGymDone=S.history.filter(r=>{const d=new Date(r.date);
+    return d.getFullYear()===y&&d.getMonth()===mo;}).length;
+  const monthRunDone=runs().filter(r=>{const d=new Date(r.date);
+    return d.getFullYear()===y&&d.getMonth()===mo;}).length;
+  const monthMobDone=S.mobility.filter(r=>{const d=new Date(r.date);
+    return d.getFullYear()===y&&d.getMonth()===mo;}).length;
+  const doneTot=monthGymDone+monthRunDone+monthMobDone;
+  const doneN=monthPlans.filter(p=>p.doneId).length;
   h+=`<div class="rings" style="padding:13px">
     <div class="run-metrics" style="justify-content:space-around">
-      <div class="rm" style="align-items:center"><b>${mTot.toFixed(0)}</b><span>km planejado</span></div>
-      <div class="rm" style="align-items:center"><b>${mDone.toFixed(1)}</b><span>km realizado</span></div>
-      <div class="rm" style="align-items:center"><b>${mTot?Math.round(mDone/mTot*100):0}%</b><span>aderência</span></div>
+      <div class="rm" style="align-items:center"><b>${monthPlans.length}</b><span>planejados</span></div>
+      <div class="rm" style="align-items:center"><b>${doneTot}</b><span>realizados</span></div>
+      <div class="rm" style="align-items:center"><b>${monthPlans.length?Math.round(doneN/monthPlans.length*100):0}%</b><span>aderência</span></div>
     </div></div>`;
+
+  if(!activeW('gym').length&&!activeW('mobility').length){
+    h+=`<div class="empty" style="padding:20px 14px">Crie um treino em <b>Treinos</b> para poder planejar
+      musculação ou mobilidade (corrida pode ser planejada direto por aqui).</div>`;
+  }
 
   weeks.forEach((ws,wi)=>{
     const wp=weekPlans(ws).filter(p=>p.kind==='run');
@@ -2428,45 +2409,35 @@ function planRun(y,mo){
     const dk=wd.reduce((a,r)=>a+r.km,0);
     h+=`<div class="pl-week">
       <div class="pl-wh"><span class="pw">Semana ${wi+1}</span>
-        <span class="pv">${dk.toFixed(1)} / ${pk.toFixed(0)} km</span>
+        ${pk||dk?`<span class="pv">${dk.toFixed(1)} / ${pk.toFixed(0)} km</span>`:''}
         <button class="btn-ghost btn-sm" onclick="tplPick(${ws})">modelo</button></div>
       <div class="pl-body">`;
     for(let i=0;i<7;i++){
       const dt=new Date(ws+i*86400000);
       const k=dayKey(dt.getTime());
       const inMonth=dt.getMonth()===mo;
-      const ps=plansOn(k,'run');
+      const ps=plansOn(k);
       h+=`<div class="pl-day ${k===todayK?'today':''}" style="${inMonth?'':'opacity:.35'}">
         <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
         <div class="pl-slot">`;
-      ps.forEach(p=>{
-        const t=rType(p.type);
-        const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
-        h+=`<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
-          style="--pc2:${t[3]}" ${act}>
-          <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>${t[2]} ${t[1]}</b>
-            ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
-          <span class="pk">${p.km?p.km+' km':''}${p.targetSec?`<br>${fmtPace(paceOf(p.km,p.targetSec))}/km`:''}</span>
-          ${p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
-            onclick="delPlanNow('${p.id}');return false;">✕</button>`}</div>`;
-      });
-      h+=`<button class="pl-add" onclick="planNew(${dt.getTime()},'run')">+ planejar</button>
+      ps.forEach(p=>{h+=planItemHTML(p);});
+      h+=`<button class="pl-add" onclick="planPickKind(${dt.getTime()})">+ planejar</button>
         </div></div>`;
     }
     h+='</div></div>';
   });
 
-  // distribuição por nível de esforço — planejado (topo) vs realizado (baixo), mesmo mês
-  const monthPlans=plans().filter(p=>{const d=new Date(p.date);
+  // distribuição por nível de esforço — planejado (topo) vs realizado (baixo), mesmo mês (corrida)
+  const monthPlansRun=plans().filter(p=>{const d=new Date(p.date);
     return p.kind==='run'&&d.getFullYear()===y&&d.getMonth()===mo;});
   const monthRuns=runs().filter(r=>{const d=new Date(r.date);
     return d.getFullYear()===y&&d.getMonth()===mo;});
-  if(monthPlans.length||monthRuns.length){
-    const totP=monthPlans.reduce((a,p)=>a+(p.km||0),0)||1;
+  if(monthPlansRun.length||monthRuns.length){
+    const totP=monthPlansRun.reduce((a,p)=>a+(p.km||0),0)||1;
     const totD=monthRuns.reduce((a,r)=>a+r.km,0)||1;
     let lh='';
     RUN_LEVELS.forEach(l=>{
-      const pk=monthPlans.filter(p=>(p.level||'moderado')===l[0]).reduce((a,p)=>a+(p.km||0),0);
+      const pk=monthPlansRun.filter(p=>(p.level||'moderado')===l[0]).reduce((a,p)=>a+(p.km||0),0);
       const dk=monthRuns.filter(r=>runLevel(r)===l[0]).reduce((a,r)=>a+r.km,0);
       if(!pk&&!dk)return;
       const pp=(pk/totP)*100, dp=(dk/totD)*100;
@@ -2481,7 +2452,7 @@ function planRun(y,mo){
       </div>`;
     });
     h+=`<div class="card"><div class="rep-h">
-        <div class="lbl-row" style="margin:0"><strong style="flex:none">Distribuição por nível (mês)</strong>
+        <div class="lbl-row" style="margin:0"><strong style="flex:none">Distribuição por nível — corrida (mês)</strong>
           <button type="button" class="qbtn" onclick="levelInfo()">?</button></div></div>
       ${lh||'<div class="empty" style="padding:16px 10px">Sem corridas classificadas ainda.</div>'}
       <div class="legend" style="margin-top:2px">
@@ -2495,7 +2466,7 @@ function planRun(y,mo){
 /* --- formulários de plano --- */
 let PF=null;
 function pfBlank(){
-  return{wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},tmode:'time',level:'moderado',
+  return{wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},tmode:'pace',level:'moderado',
     h:'',m:'',s:''};
 }
 function pfSecs(){return (parseInt(PF.h)||0)*3600+(parseInt(PF.m)||0)*60+(parseInt(PF.s)||0);}
@@ -2505,10 +2476,27 @@ function pfSyncShots(){
   while(PF.shots.length<n)PF.shots.push({km:'',m:'',s:'',rm:'',rs:''});
   PF.shots.length=n;
 }
+window.planPickKind=ts=>{
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>Planejar treino</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin:-6px 0 14px">O que você quer planejar para ${fdate(ts)}?</div>
+      <button class="menu-item" onclick="closeM();planNew(${ts},'run')"><span class="ic">🏃</span>Corrida</button>
+      <button class="menu-item" onclick="closeM();planNew(${ts},'gym')"><span class="ic">🏋️</span>Musculação</button>
+      <button class="menu-item" onclick="closeM();planNew(${ts},'mobility')"><span class="ic">🧘</span>Mobilidade</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Cancelar</button>
+    </div></div>`;
+};
 window.planNew=(ts,kind)=>{
   if(kind==='gym'){
     PF={id:null,kind:'gym',date:ts,mode:'workout',wid:null,targets:{},muscles:[],exercises:[],note:''};
     drawGymPlanForm();
+    return;
+  }
+  if(kind==='mobility'){
+    PF={id:null,kind:'mobility',date:ts,wid:null,note:''};
+    drawMobPlanForm();
     return;
   }
   PF=Object.assign({id:null,kind,date:ts,type:'rodagem',km:'',note:''},pfBlank());
@@ -2525,6 +2513,11 @@ window.planEdit=id=>{
     if(!PF.exercises)PF.exercises=[];
     if(!PF.mode)PF.mode=PF.wid?'workout':(PF.muscles.length?'muscles':'custom');
     drawGymPlanForm();
+    return;
+  }
+  if(p.kind==='mobility'){
+    PF=JSON.parse(JSON.stringify(p));
+    drawMobPlanForm();
     return;
   }
   PF=Object.assign(pfBlank(),JSON.parse(JSON.stringify(p)));
@@ -2674,6 +2667,11 @@ window.savePlan=async()=>{
     }
     S.plans=plans().filter(x=>x.id!==rec.id);
     S.plans.push(rec);
+  }else if(PF.kind==='mobility'){
+    if(!PF.wid)return toast('Escolha um treino de mobilidade');
+    const rec={id:PF.id||uid(),kind:'mobility',date:PF.date,wid:PF.wid,note:(PF.note||'').trim()};
+    S.plans=plans().filter(x=>x.id!==rec.id);
+    S.plans.push(rec);
   }
   await save();PF=null;closeM();render();toast('Planejado');
 };
@@ -2714,6 +2712,36 @@ function gymPlanLabel(p){
   }
   const w=S.workouts.find(x=>x.id===p.wid);
   return w?w.name:'Treino de musculação';
+}
+function mobPlanLabel(p){
+  const w=S.workouts.find(x=>x.id===p.wid);
+  return w?w.name:'Treino de mobilidade';
+}
+window.pfMobPickW=id=>{PF.wid=id;drawMobPlanForm();};
+function drawMobPlanForm(){
+  const d=new Date(PF.date);
+  const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const mobWs=activeW('mobility');
+  let h=`<div class="modal" onclick="if(event.target===this)closePF()">
+    <div class="modal-in">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <h2 style="flex:1;margin:0">${PF.id?'Editar':'Planejar'} mobilidade</h2>
+        ${PF.id?`<button class="btn-ghost btn-sm" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35);flex:none" onclick="delPlanNow('${PF.id}');return false;">🗑 Excluir</button>`:''}
+      </div>
+      <div class="field"><label>Data</label>
+        <input type="date" value="${dv}" onchange="pfDate(this.value)"></div>
+      <div class="field"><label>Treino de mobilidade</label>
+        <div class="type-grid">${mobWs.map(x=>
+          `<button class="type-b ${x.id===PF.wid?'on':''}" onclick="pfMobPickW('${x.id}')">🧘 ${esc(x.name)}</button>`).join('')
+          ||'<div class="empty" style="padding:10px">Nenhum treino de mobilidade ativo.<br>Crie um em Treinos primeiro.</div>'}
+        </div></div>
+      <div class="field"><label>Instruções gerais</label>
+        <input value="${esc(PF.note)}" placeholder="Ex: focar na respiração" oninput="PF.note=this.value"></div>
+      <div class="row">
+        <button class="btn-ghost" onclick="closePF()">Cancelar</button>
+        <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
+    </div></div>`;
+  setModalHTML(h);
 }
 function drawGymPlanForm(){
   const d=new Date(PF.date);
@@ -2820,9 +2848,9 @@ function drawPlanForm(){
   if(structured){
     h+=`<div class="field"><label>Preenchimento do tempo</label>
       <div class="seg seg3">
-        <button class="${PF.tmode==='time'?'on':''}" onclick="pfSet('tmode','time')">Tempo</button>
         <button class="${PF.tmode==='pace'?'on':''}" onclick="pfSet('tmode','pace')">Pace</button>
         <button class="${PF.tmode==='speed'?'on':''}" onclick="pfSet('tmode','speed')">km/h</button>
+        <button class="${PF.tmode==='time'?'on':''}" onclick="pfSet('tmode','time')">Tempo</button>
       </div></div>`;
     h+=blkHTML(PF,'pfBlk','wu','🔸','Aquecimento');
     if(t==='inter'){
@@ -2919,34 +2947,29 @@ function drawPlanForm(){
       const pfpv2=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
       h+=`<div class="blk">
         <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-        <div class="field"><label>Distância planejada (km)</label>
-          <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
-            placeholder="10.00" oninput="pfNum('km',this.value)"></div>
-        <div class="field"><label>Alvo (opcional)</label>
-          <div class="seg seg3">
-            <button class="${PF.tmode==='time'?'on':''}" onclick="pfSet('tmode','time')">Tempo</button>
-            <button class="${PF.tmode==='pace'?'on':''}" onclick="pfSet('tmode','pace')">Pace</button>
-            <button class="${PF.tmode==='speed'?'on':''}" onclick="pfSet('tmode','speed')">km/h</button>
-          </div></div>
-        ${PF.tmode==='pace'?`<div class="field"><label>Pace alvo (min : s /km)</label>
-          <div class="dur2">
-            <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
-          </div></div>`:
-        PF.tmode==='speed'?`<div class="field"><label>Velocidade alvo (km/h)</label>
-          <input type="number" inputmode="decimal" step="0.1"
-            value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
-            placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
-        `<div class="field"><label>Tempo alvo (h : min : s)</label>
-          <div class="dur-row">
-            <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
-            <div class="sep">:</div>
-            <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
-          </div></div>`}
-      </div>`;
+        <div class="mini-row">
+          <div class="mini-f"><label>Distância (km)</label>
+            <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
+              placeholder="10.00" oninput="pfNum('km',this.value)"></div>
+          ${PF.tmode==='pace'?`<div class="mini-f"><label>Pace alvo (min : s /km)</label>
+            <div class="dur2">
+              <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
+            </div></div>`:
+          PF.tmode==='speed'?`<div class="mini-f"><label>Velocidade alvo (km/h)</label>
+            <input type="number" inputmode="decimal" step="0.1"
+              value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
+              placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
+          `<div class="mini-f"><label>Tempo alvo (h:min:s)</label>
+            <div class="dur-row">
+              <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
+              <div class="sep">:</div>
+              <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
+            </div></div>`}
+        </div></div>`;
     }
     h+=blkHTML(PF,'pfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcboxP"></div>`;
@@ -3010,7 +3033,7 @@ window.pfDone=()=>{
   PF=null;
   RF={id:null,date:p.date,type:p.type,km:p.km||'',h:p.h||'',m:p.m||'',s:p.s||'',level:p.level||'moderado',surf:'rua',
     note:p.note||'',wu:p.wu||blank(),cd:p.cd||blank(),reps:p.reps||6,
-    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'time'};
+    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'pace'};
   syncShots();
   drawRunForm();
 };
@@ -3806,6 +3829,9 @@ window.finishMob=async()=>{
   S.mobility.push({id:sid,wid:liveM.wid,name:liveM.name,date:liveM.date,sec,
     exercises:ex,regions:(wDone&&wDone.regions)||[],tags:(wDone&&wDone.tags)||[]});
   if(wDone&&wDone.adhoc&&!wDone.archived)wDone.archived=true;
+  // vincula ao plano
+  const pl=matchPlan('mobility',liveM.date,{wid:liveM.wid});
+  if(pl&&!pl.doneId)pl.doneId=sid;
   await save();clearInterval(tickM);view='mob';render();toast('Treino salvo ✓');
 };
 
@@ -3877,10 +3903,11 @@ function session(){
         <span class="gh-sub">${g.size} exercícios · sem descanso entre eles</span></div>`;
     }
     h+=`<div class="ex-block">
-      <div class="ex-head"><strong>${grpTag(g)}${esc(ex.name)}${ex.temp?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}</strong>
+      <div class="ex-head"><strong>${grpTag(g)}${esc(ex.name)}${ex.temp?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}${ex.swapped?'<span class="tag-pc" style="background:rgba(91,141,239,.18);color:#5b8def">TROCADO</span>':''}</strong>
         <div style="display:flex;align-items:center;gap:10px">
         <label class="bw-tog ${ex.bw?'on':''}">
           <input type="checkbox" ${ex.bw?'checked':''} onchange="setBW(${i},this.checked)">PC</label>
+        <button class="btn-sm btn-ghost" onclick="openSwapEx(${i})" title="Trocar exercício (só neste treino)">🔁</button>
         <button class="btn-sm btn-ghost" onclick="addSet(${i})">+ série</button></div></div>
       <div class="ex-body">`;
     if(p){
@@ -4009,6 +4036,70 @@ window.addSet=i=>{const st=live.exercises[i].sets;
   const last=st[st.length-1]||{reps:'',peso:''};
   st.push({reps:last.reps,peso:bw?'':last.peso});render()};
 window.rmSet=(i,j)=>{live.exercises[i].sets.splice(j,1);render()};
+
+/* ---------- TROCAR EXERCÍCIO (só nesta sessão) ---------- */
+window.openSwapEx=i=>{
+  window.__swapIdx=i;
+  window.__swapQ='';
+  const used=new Set(live.exercises.map(e=>e.name.toLowerCase()));
+  const pool=new Set();
+  S.workouts.forEach(w=>{ if(w.kind!=='mobility')(w.exercises||[]).forEach(e=>pool.add(e.name)); });
+  S.history.forEach(h=>{ (h.exercises||[]).forEach(e=>pool.add(e.name)); });
+  window.__swapPool=[...pool].filter(n=>!used.has(n.toLowerCase())).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  drawSwapEx();
+};
+function drawSwapEx(){
+  // desenha o modal uma única vez (com um container vazio pros resultados);
+  // a busca (swapExQ) só atualiza esse container depois, sem recriar o <input>
+  // — recriar o campo a cada tecla jogava o cursor pro início e invertia a digitação.
+  const i=window.__swapIdx;
+  const cur=live.exercises[i];
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>Trocar exercício</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin:-6px 0 14px">
+        Troca "${esc(cur.name)}" só neste treino de hoje — o treino salvo não muda, e as séries já
+        preenchidas nos outros exercícios continuam aí.</div>
+      <div class="field"><label>Novo exercício</label>
+        <input id="swapq" value="${esc(window.__swapQ)}" placeholder="Buscar ou digitar um nome novo..."
+          oninput="swapExQ(this.value)"></div>
+      <div id="swapRes" style="max-height:230px;overflow:auto;margin:8px 0 0"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+        <button class="btn-a" onclick="confirmSwapExCustom()">Usar nome digitado</button>
+      </div>
+    </div></div>`;
+  renderSwapRes();
+  setTimeout(()=>{const el=$('swapq');if(el)el.focus()},150);
+}
+function renderSwapRes(){
+  const q=(window.__swapQ||'').toLowerCase();
+  const filtered=q?window.__swapPool.filter(n=>n.toLowerCase().includes(q)):window.__swapPool;
+  window.__swapFiltered=filtered;
+  const el=$('swapRes');
+  if(!el)return;
+  el.innerHTML=filtered.length?filtered.map((n,idx)=>`<button class="menu-item" data-act="swapex" data-arg="${idx}">
+      <span class="ic">🔁</span>${esc(n)}</button>`).join('')
+    :`<div class="empty" style="padding:14px 6px">${window.__swapPool.length?'Nenhum exercício encontrado.':'Nenhum outro exercício cadastrado ainda — digite um nome novo abaixo.'}</div>`;
+}
+window.swapExQ=v=>{window.__swapQ=v;renderSwapRes();};
+window.confirmSwapExCustom=()=>{
+  const el=$('swapq');
+  const name=(el?el.value:'').trim();
+  if(!name)return toast('Digite um nome ou escolha um da lista');
+  doSwapEx(name);
+};
+function doSwapEx(name){
+  name=(name||'').trim();
+  if(!name)return toast('Escolha ou digite um nome');
+  const i=window.__swapIdx;
+  if(live.exercises.some((e,idx)=>idx!==i&&e.name.toLowerCase()===name.toLowerCase()))
+    return toast('Já existe um exercício com esse nome nesta sessão');
+  live.exercises[i].name=name;
+  live.exercises[i].swapped=true;
+  closeM();render();
+  toast('Exercício trocado — vale só para hoje');
+}
 window.finish=async()=>{
   // guarda o índice original para não deixar um conjugado "órfão" quando o
   // exercício de cima da dupla não foi preenchido e some do registro
@@ -4036,6 +4127,11 @@ window.finish=async()=>{
 
 /* ---------- HISTÓRICO ---------- */
 let hFlt='all', hRunT='all', hGymW='all', hGymM='all', hMobW='all';
+let histExp=new Set(); // ids de sessões de musculação expandidas no histórico
+window.toggleHistExp=id=>{
+  if(histExp.has(id))histExp.delete(id); else histExp.add(id);
+  render();
+};
 window.setHFlt=v=>{hFlt=v;hRunT='all';hGymW='all';hGymM='all';hMobW='all';render()};
 window.setHRunT=v=>{hRunT=v;render()};
 window.setHGymW=v=>{hGymW=v;render()};
@@ -4192,21 +4288,29 @@ function hist(){
     const s=it.d;
     const w=S.workouts.find(x=>x.id===s.wid);
     const c=wColor(w);
+    const exp=histExp.has(s.id);
     const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
       b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
-    h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c}"`:''}><div class="hist-row">
-      <strong>🏋️ ${esc(s.name)}</strong><span>${fdateW(s.date)}${s.dur?' · '+s.dur+'min':''}</span></div>
-      ${musclesPillHTML(s.muscles)}`;
-    const hg=exGroups(s.exercises);
-    s.exercises.forEach((e,ei)=>{
-      h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
-        <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
-    });
-    h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
-    h+=`<div class="row" style="margin-top:10px">
-      <button class="btn-ghost btn-sm" onclick="editHist('${s.id}')">✎ Editar treino</button>
-      <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="delH('${s.id}')">Excluir sessão</button>
-    </div></div>`;
+    h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c}"`:''}>
+      <div class="hist-row" style="cursor:pointer" onclick="toggleHistExp('${s.id}')">
+        <strong>🏋️ ${esc(s.name)}</strong>
+        <span style="display:flex;align-items:center;gap:8px">${fdateW(s.date)}${s.dur?' · '+s.dur+'min':''}
+          <span style="transition:transform .2s;transform:rotate(${exp?'180':'0'}deg);display:inline-block">▾</span></span>
+      </div>`;
+    if(exp){
+      h+=musclesPillHTML(s.muscles);
+      const hg=exGroups(s.exercises);
+      s.exercises.forEach((e,ei)=>{
+        h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
+          <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
+      });
+      h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
+      h+=`<div class="row" style="margin-top:10px">
+        <button class="btn-ghost btn-sm" onclick="event.stopPropagation();editHist('${s.id}')">✎ Editar treino</button>
+        <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="event.stopPropagation();delH('${s.id}')">Excluir sessão</button>
+      </div>`;
+    }
+    h+='</div>';
   });
   $('app').innerHTML=h;$('fab').innerHTML='';
 }

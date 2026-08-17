@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<script>try{if(localStorage.getItem('theme')==='light')document.documentElement.classList.add('light');}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,7 +17,14 @@
 :root{
   --bg:#0e0f13; --surface:#171922; --surface2:#1f2230; --line:#2a2e3d;
   --txt:#eef0f6; --dim:#8b90a3; --accent:#ff6b35; --accent2:#3ddc97;
-  --radius:14px;
+  --bg-blur:rgba(14,15,19,.92); --surface-blur:rgba(23,25,34,.96);
+  --radius:14px; color-scheme:dark;
+}
+html.light{
+  --bg:#f4f5f8; --surface:#ffffff; --surface2:#eef0f5; --line:#e0e3ec;
+  --txt:#1a1c24; --dim:#666c80;
+  --bg-blur:rgba(244,245,248,.92); --surface-blur:rgba(255,255,255,.96);
+  color-scheme:light;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
@@ -24,7 +32,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
   font-size:16px;overscroll-behavior-y:none}
 body{padding:env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 150px)}
 .wrap{max-width:640px;margin:0 auto;padding:0 14px}
-header{position:sticky;top:0;z-index:20;background:rgba(14,15,19,.92);
+header{position:sticky;top:0;z-index:20;background:var(--bg-blur);
   backdrop-filter:blur(12px);border-bottom:1px solid var(--line);
   padding:calc(env(safe-area-inset-top) + 10px) 14px 10px}
 header .hrow{max-width:640px;margin:0 auto;display:flex;align-items:center;gap:10px}
@@ -173,6 +181,14 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   font-size:12px;color:var(--dim);font-weight:600;white-space:nowrap}
 .bw-tog input{width:19px;height:19px;flex:none;accent-color:var(--accent);margin:0;padding:0}
 .bw-tog.on{color:var(--accent)}
+.tgl{position:relative;display:inline-block;width:46px;height:27px;flex:none}
+.tgl input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.tgl-trk{position:absolute;inset:0;background:var(--surface2);border:1px solid var(--line);
+  border-radius:14px;transition:background .2s,border-color .2s;pointer-events:none}
+.tgl-trk::after{content:'';position:absolute;top:2px;left:2px;width:21px;height:21px;
+  background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.tgl input:checked+.tgl-trk{background:var(--accent);border-color:var(--accent)}
+.tgl input:checked+.tgl-trk::after{transform:translateX(19px)}
 .tag-pc{display:inline-block;background:rgba(255,107,53,.16);color:var(--accent);
   border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700;letter-spacing:.3px;margin-left:6px}
 .kebab{background:transparent;color:var(--dim);padding:8px 10px;font-size:17px;
@@ -212,7 +228,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 
 /* --- TAB BAR --- */
 .tabbar{position:fixed;bottom:0;left:0;right:0;z-index:40;
-  background:rgba(23,25,34,.96);backdrop-filter:blur(14px);
+  background:var(--surface-blur);backdrop-filter:blur(14px);
   border-top:1px solid var(--line);display:flex;
   padding:6px 0 calc(env(safe-area-inset-bottom) + 4px)}
 .tb{flex:1;background:transparent;padding:6px 0;display:flex;flex-direction:column;
@@ -541,8 +557,27 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 <div class="toast" id="toast"></div>
 
 <script>
+
 const $=id=>document.getElementById(id);
 let S={workouts:[],history:[],runs:[],plans:[]}, view='home', cur=null, live=null, t0=null, tick=null;
+
+/* ---------- APARÊNCIA (modo claro/escuro) ---------- */
+// preferência de exibição do dispositivo — de propósito FORA de S: não entra
+// no backup/exportação nem é sincronizada, é só um ajuste visual local.
+let theme='dark';
+try{ if(localStorage.getItem('theme')==='light')theme='light'; }catch(e){}
+function applyTheme(){
+  document.documentElement.classList.toggle('light',theme==='light');
+  const mt=document.querySelector('meta[name="theme-color"]');
+  if(mt)mt.setAttribute('content',theme==='light'?'#f4f5f8':'#0e0f13');
+}
+window.setTheme=v=>{
+  theme=(v==='light')?'light':'dark';
+  try{localStorage.setItem('theme',theme);}catch(e){}
+  applyTheme();
+  if(view==='cfg')config();
+};
+applyTheme();
 // substitui o conteúdo do modal preservando a posição de rolagem do formulário —
 // sem isso, cada botão (tipo, RPE, superfície, grupo muscular...) que força um
 // redesenho do modal jogava a rolagem de volta pro topo
@@ -611,6 +646,7 @@ async function load(){
   if(!Array.isArray(S.runs))S.runs=[];
   if(!Array.isArray(S.plans))S.plans=[];
   if(!Array.isArray(S.mobility))S.mobility=[];
+  if(!Array.isArray(S.exDict))S.exDict=[]; // nomes de exercício "aprendidos" (correção ortográfica)
   // migra tipos removidos: easy -> regen, tempo -> limiar, race -> longao
   const MIG={easy:'regen',tempo:'limiar',race:'long'};
   S.runs.forEach(r=>{
@@ -795,7 +831,14 @@ function config(){
   const act=activeW(), arc=archivedW();
   const notifN=notifications().length;
   let h='';
-  h+='<div class="sec-lbl" style="margin-top:4px">Notificações</div>';
+  h+='<div class="sec-lbl" style="margin-top:4px">Aparência</div>';
+  h+=`<div class="mcard" style="cursor:default">
+    <span class="mi">${theme==='light'?'☀️':'🌙'}</span>
+    <span class="mt">Modo claro<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Troca o visual do app para um tema claro</div></span>
+    <label class="tgl"><input type="checkbox" ${theme==='light'?'checked':''}
+      onchange="setTheme(this.checked?'light':'dark')"><span class="tgl-trk"></span></label>
+  </div>`;
+  h+='<div class="sec-lbl">Notificações</div>';
   h+=`<button class="mcard" onclick="openNotif()">
     <span class="mi">🔔</span><span class="mt">Notificações</span>
     <span class="mv">${notifN?notifN:'—'}</span><span class="mc">›</span></button>`;
@@ -1018,6 +1061,79 @@ function musclesPillHTML(arr){
     const g=muscleG(k);
     return `<span class="pill">${g?g[2]+' '+g[1]:k}</span>`;
   }).join('')}</div>`;
+}
+
+/* ====================== CORREÇÃO DE NOME DE EXERCÍCIO ======================
+   Lista "invisível" de nomes conhecidos (uma base fixa dos exercícios mais comuns +
+   os que o usuário já criou/confirmou). Ao digitar um nome que não bate com nenhum
+   da lista, sugere o mais parecido ("quis dizer?"); se não houver nada parecido,
+   pergunta se é mesmo um exercício novo. Em qualquer caso, o nome escolhido pelo
+   usuário entra pra lista (S.exDict), pra não perguntar de novo da próxima vez. */
+const BUILTIN_EXERCISE_NAMES=[
+  'Supino reto','Supino inclinado','Supino declinado','Supino reto com halteres',
+  'Supino inclinado com halteres','Crucifixo','Crucifixo inclinado','Crossover',
+  'Voador peitoral (peck deck)','Mergulho (dips)','Flexão de braço',
+  'Puxada frontal','Puxada na polia alta','Remada curvada','Remada cavalinho',
+  'Remada baixa','Remada unilateral','Remada cavalo','Barra fixa','Levantamento terra',
+  'Pulldown','Face pull','Encolhimento (shrug)',
+  'Desenvolvimento militar','Desenvolvimento com halteres','Elevação lateral',
+  'Elevação frontal','Elevação posterior','Remada alta','Arnold press',
+  'Rosca direta','Rosca alternada','Rosca martelo','Rosca scott','Rosca concentrada',
+  'Rosca 21','Tríceps testa','Tríceps corda','Tríceps francês','Tríceps coice',
+  'Tríceps banco','Agachamento livre','Agachamento no smith','Leg press',
+  'Cadeira extensora','Mesa flexora','Cadeira flexora','Stiff','Afundo',
+  'Passada','Cadeira adutora','Cadeira abdutora','Glúteo na polia','Elevação pélvica',
+  'Panturrilha em pé','Panturrilha sentado','Abdominal supra','Abdominal infra',
+  'Abdominal oblíquo','Prancha','Prancha lateral','Elevação de pernas',
+];
+function normEx(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ').trim();
+}
+function levDist(a,b){
+  const m=a.length,n=b.length;
+  if(!m)return n; if(!n)return m;
+  const dp=[];
+  for(let i=0;i<=m;i++)dp.push([i]);
+  for(let j=1;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++)
+    for(let j=1;j<=n;j++)
+      dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1]);
+  return dp[m][n];
+}
+function allKnownExerciseNames(){
+  const fromWorkouts=[];
+  (S.workouts||[]).forEach(w=>(w.exercises||[]).forEach(e=>{
+    const n=typeof e==='string'?e:e.name;
+    if(n)fromWorkouts.push(n);
+  }));
+  return [...BUILTIN_EXERCISE_NAMES,...(S.exDict||[]),...fromWorkouts];
+}
+function learnExerciseName(name){
+  const n=String(name||'').trim();
+  if(!n)return;
+  const norm=normEx(n);
+  if(allKnownExerciseNames().some(k=>normEx(k)===norm))return;
+  S.exDict.push(n);
+  save();
+}
+// compara o nome digitado com a lista conhecida; devolve status:
+// 'empty' (nada digitado), 'ok' (já é conhecido), 'suggest' (achou um parecido —
+// provável erro de digitação) ou 'new' (não é parecido com nada — provável exercício
+// realmente novo)
+function matchExerciseName(name){
+  const norm=normEx(name);
+  if(!norm)return{status:'empty'};
+  const known=allKnownExerciseNames();
+  if(known.some(k=>normEx(k)===norm))return{status:'ok'};
+  let best=null,bestDist=Infinity;
+  known.forEach(k=>{
+    const d=levDist(norm,normEx(k));
+    if(d<bestDist){bestDist=d;best=k;}
+  });
+  const threshold=Math.max(1,Math.ceil(norm.length*0.3));
+  if(best&&bestDist>0&&bestDist<=threshold)return{status:'suggest',suggestion:best};
+  return{status:'new'};
 }
 
 // --- regiões e focos (mobilidade) ---
@@ -2157,6 +2273,65 @@ window.askDone=v=>{
   if(r)r(v);
 };
 
+/* ---------- CONFIRMAÇÃO DE NOME DE EXERCÍCIO (correção ortográfica) ----------
+   Sempre que um nome digitado não bate com a lista conhecida (embutida + já usados
+   no app), pergunta antes de aceitar: se achou algo parecido, sugere a correção;
+   senão, confirma que é mesmo um exercício novo. Devolve o nome final escolhido
+   (Promise<string>), ou null se o usuário preferiu voltar e corrigir por conta própria. */
+let __exNameResolve=null;
+let __exNamePending=null;
+function askExerciseNameCheck(typed,suggestion){
+  return new Promise(resolve=>{
+    __exNameResolve=resolve;
+    __exNamePending={typed,suggestion};
+    const box=document.getElementById('confirm');
+    if(suggestion){
+      box.innerHTML='<div class="modal" style="z-index:300;align-items:center" onclick="if(event.target===this)exNameDone(false)">'+
+        '<div class="ask-box">'+
+        '<h3>Nome parecido encontrado</h3>'+
+        '<p>Você digitou "'+esc(typed)+'". Quis dizer <b>'+esc(suggestion)+'</b>?</p>'+
+        '<div class="ask-row">'+
+        '<button class="btn-ghost" onclick="exNameDone(false)">Manter "'+esc(typed)+'"</button>'+
+        '<button class="btn-a" onclick="exNameDone(true)">Usar "'+esc(suggestion)+'"</button>'+
+        '</div></div></div>';
+    }else{
+      box.innerHTML='<div class="modal" style="z-index:300;align-items:center" onclick="if(event.target===this)exNameDone(false)">'+
+        '<div class="ask-box">'+
+        '<h3>Exercício novo</h3>'+
+        '<p>"'+esc(typed)+'" ainda não está na lista de exercícios. É isso mesmo que você quis dizer?</p>'+
+        '<div class="ask-row">'+
+        '<button class="btn-ghost" onclick="exNameDone(null)">Corrigir</button>'+
+        '<button class="btn-a" onclick="exNameDone(true)">Sim, é isso</button>'+
+        '</div></div></div>';
+    }
+  });
+}
+window.exNameDone=useIt=>{
+  document.getElementById('confirm').innerHTML='';
+  const pending=__exNamePending; __exNamePending=null;
+  const r=__exNameResolve; __exNameResolve=null;
+  if(!pending||!r)return;
+  if(pending.suggestion){
+    const finalName=useIt?pending.suggestion:pending.typed;
+    if(!useIt)learnExerciseName(pending.typed); // usuário insistiu na própria grafia
+    r(finalName);
+  }else{
+    if(useIt===null){r(null);return;} // "Corrigir": não muda nada, deixa o usuário editar
+    learnExerciseName(pending.typed);
+    r(pending.typed);
+  }
+};
+// função de conveniência: roda a checagem e, se o usuário confirmar algum nome
+// (com ou sem correção), aplica via applyFn(nome). Se o usuário optar por "Corrigir",
+// applyFn não é chamado — o campo continua como o usuário deixou.
+async function checkExerciseNameThen(typed,applyFn){
+  const t=String(typed||'').trim();
+  const m=matchExerciseName(t);
+  if(m.status==='empty'||m.status==='ok')return;
+  const result=await askExerciseNameCheck(t,m.status==='suggest'?m.suggestion:null);
+  if(result!=null&&applyFn)applyFn(result);
+}
+
 /* ---------- DIAGNÓSTICO ---------- */
 window.__log=[];
 function dbg(m){
@@ -2505,7 +2680,7 @@ window.planNew=(ts,kind)=>{
 window.pfLevel=k=>{PF.level=k;drawPlanForm();};
 window.planEdit=id=>{
   const p=plans().find(x=>x.id===id); if(!p)return;
-  if(p.doneId)return toast('Este treino já foi executado');
+  if(p.doneId)return planDoneDetail(p);
   if(p.kind==='gym'){
     PF=JSON.parse(JSON.stringify(p));
     if(!PF.targets)PF.targets={};
@@ -2532,6 +2707,73 @@ window.planEdit=id=>{
   if(mainSec){PF.h=Math.floor(mainSec/3600);PF.m=Math.floor((mainSec%3600)/60);PF.s=mainSec%60;}
   pfSyncShots();
   drawPlanForm();
+};
+// mostra os detalhes do treino já concluído que cumpriu este plano — clicar num
+// plano "feito" não desfaz na hora, só abre esta tela; desfazer é uma ação
+// separada e explícita aqui dentro (com confirmação).
+window.planDoneDetail=p=>{
+  let nome='Treino', detail='', extra='';
+  try{
+    if(p.kind==='run'){
+      const t=rType(p.type);
+      nome=t[2]+' '+t[1]+(p.km?' de '+p.km+' km':'');
+      const r=runs().find(x=>x.id===p.doneId);
+      if(r){
+        detail=`<div class="ct2"><span>Distância</span><b>${r.km.toFixed(2)} km</b></div>
+          <div class="ct2"><span>Tempo</span><b>${fmtDur(r.sec)}</b></div>
+          <div class="ct2"><span>Pace médio</span><b>${fmtPace(paceOf(r.km,r.sec))}/km</b></div>`;
+        // divisão em aquecimento / parte principal / desaquecimento (e tiros, fartlek, limiar
+        // quando o tipo tiver essa estrutura) — mesma função usada no card de Corrida
+        extra=structSummary(r);
+      }
+    }else if(p.kind==='mobility'){
+      nome='🧘 '+mobPlanLabel(p);
+      const m=S.mobility.find(x=>x.id===p.doneId);
+      if(m)detail=`<div class="ct2"><span>Duração</span><b>${fmtDur(m.sec)}</b></div>
+        <div class="ct2"><span>Exercícios feitos</span><b>${m.exercises.length}</b></div>`;
+    }else{
+      nome='🏋️ '+gymPlanLabel(p);
+      const s=S.history.find(x=>x.id===p.doneId);
+      if(s){
+        const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
+          b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
+        detail=`<div class="ct2"><span>Duração</span><b>${s.dur?s.dur+' min':'—'}</b></div>
+          <div class="ct2"><span>Exercícios</span><b>${s.exercises.length}</b></div>
+          <div class="ct2"><span>Volume total</span><b>${Math.round(vol)} kg</b></div>`;
+      }
+    }
+  }catch(e){}
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2 style="margin-bottom:2px">${esc(nome)}</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin-bottom:14px">${fdateW(p.date)} · ✓ treino concluído</div>
+      ${detail?`<div class="calc-tot">${detail}${extra}</div>`
+        :'<div class="empty" style="padding:14px 6px">Registro do treino não encontrado (pode ter sido excluído do histórico).</div>'}
+      ${p.note?`<div class="field" style="margin-top:12px"><label>Nota do planejamento</label>
+        <div style="font-size:13px;color:var(--txt)">${esc(p.note)}</div></div>`:''}
+      <div class="row" style="margin-top:18px">
+        <button class="btn-ghost" onclick="closeM()">Fechar</button>
+        <button class="btn-ghost" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35)"
+          onclick="planUndoAskById('${p.id}')">↩ Desfazer marcação</button>
+      </div>
+    </div></div>`;
+};
+window.planUndoAskById=id=>{
+  const p=plans().find(x=>x.id===id); if(p)planUndoAsk(p);
+};
+window.planUndoAsk=async p=>{
+  let nome;
+  try{
+    if(p.kind==='run'){const t=rType(p.type); nome=t[1]+(p.km?' de '+p.km+' km':'');}
+    else if(p.kind==='mobility'){nome=mobPlanLabel(p);}
+    else{nome=gymPlanLabel(p);}
+  }catch(e){nome='Este treino';}
+  const ok=await ask('Desfazer treino feito?',
+    `"${nome}" em ${fdate(p.date)} está marcado como feito. Desfazer volta o plano para pendente — `+
+    `o registro já salvo no histórico não é apagado.`,'Desfazer',true);
+  if(!ok)return;
+  p.doneId=null;
+  await save();closeM();render();toast('Marcação desfeita — plano voltou a pendente');
 };
 window.pfSet=(k,v)=>{PF[k]=v;if(k==='type')pfSyncShots();drawPlanForm()};
 window.pfBlk=(b,k,v)=>{PF[b][k]=v;updPlanCalc()};
@@ -2703,8 +2945,12 @@ window.pfExDel=i=>{PF.exercises.splice(i,1);drawGymPlanForm();};
 window.pfExSet=(i,k,v)=>{PF.exercises[i][k]=v;};
 function gymPlanLabel(p){
   if(p.mode==='muscles'){
-    const names=(p.muscles||[]).map(m=>{const g=muscleG(m);return g?g[2]+' '+g[1]:m;});
-    return names.length?names.join(', '):'Musculação';
+    if(!p.muscles||!p.muscles.length)return 'Musculação';
+    const set=new Set(p.muscles);
+    const combo=MUSCLE_COMBOS.find(([ks])=>ks.length===set.size&&ks.every(k=>set.has(k)));
+    if(combo)return combo[1];
+    const names=p.muscles.map(m=>{const g=muscleG(m);return g?g[2]+' '+g[1]:m;});
+    return names.join(', ');
   }
   if(p.mode==='custom'){
     const n=(p.exercises||[]).length;
@@ -3419,12 +3665,22 @@ function editW(id){
   window.rmEx=i=>{window.__exs.splice(i,1);
     if(!window.__exs.length)window.__exs.push({name:'',sets:'',reps:'',note:''});drawEx()};
   window.exSet=(i,k,v)=>{window.__exs[i][k]=v};
+  // ao sair do campo de nome, confere se bate com a lista de exercícios conhecidos;
+  // se não bater, sugere correção (ou confirma que é um exercício novo mesmo)
+  window.exNameBlurTpl=i=>{
+    const typed=window.__exs[i]&&window.__exs[i].name;
+    checkExerciseNameThen(typed,name=>{
+      if(!window.__exs[i])return;
+      window.__exs[i].name=name;
+      drawEx();
+    });
+  };
   function drawEx(){
     $('exl').innerHTML=window.__exs.map((e,i)=>`
       <div class="blk ex-blk">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
           <input class="exn" style="flex:1;font-weight:600" value="${esc(e.name)}"
-            placeholder="Ex: Supino reto" oninput="exSet(${i},'name',this.value)">
+            placeholder="Ex: Supino reto" oninput="exSet(${i},'name',this.value)" onblur="exNameBlurTpl(${i})">
           <button class="btn-ghost" style="padding:9px 11px;flex:none" onclick="rmEx(${i})">✕</button>
         </div>
         <div class="mini-row">
@@ -3997,8 +4253,14 @@ window.openAddEx=()=>{
   draw();
 };
 window.confirmAddEx=async()=>{
-  const name=($('nex').value||'').trim();
+  let name=($('nex').value||'').trim();
   if(!name)return toast('Dê um nome ao exercício');
+  const nm=matchExerciseName(name);
+  if(nm.status==='suggest'||nm.status==='new'){
+    const result=await askExerciseNameCheck(name,nm.status==='suggest'?nm.suggestion:null);
+    if(result==null)return; // "Corrigir": deixa o modal de adicionar aberto pro usuário ajustar
+    name=result;
+  }
   if(live.exercises.some(e=>e.name.toLowerCase()===name.toLowerCase()))
     return toast('Já existe um exercício com esse nome nesta sessão');
   const sets=window.__newEx.sets, reps=window.__newEx.reps, note=(window.__newEx.note||'').trim();
@@ -4346,7 +4608,7 @@ function drawEditHist(){
   window.__ehExs.forEach((ex,i)=>{
     h+=`<div class="ex-block">
       <div class="ex-head">
-        <input value="${esc(ex.name)}" oninput="ehName(${i},this.value)" placeholder="Nome do exercício"
+        <input value="${esc(ex.name)}" oninput="ehName(${i},this.value)" onblur="ehNameBlur(${i})" placeholder="Nome do exercício"
           style="flex:1;min-width:0;background:transparent;border:none;color:var(--txt);font-size:15px;font-weight:700;padding:4px 0">
         <div style="display:flex;align-items:center;gap:10px;flex:none">
         <label class="bw-tog ${ex.bw?'on':''}">
@@ -4383,6 +4645,14 @@ window.ehBW=(i,v)=>{
 };
 window.ehVal=(i,j,k,v)=>{window.__ehExs[i].sets[j][k]=v;};
 window.ehName=(i,v)=>{window.__ehExs[i].name=v;};
+window.ehNameBlur=i=>{
+  const typed=window.__ehExs[i]&&window.__ehExs[i].name;
+  checkExerciseNameThen(typed,name=>{
+    if(!window.__ehExs[i])return;
+    window.__ehExs[i].name=name;
+    drawEditHist();
+  });
+};
 window.ehAddSet=i=>{const st=window.__ehExs[i].sets;
   const bw=window.__ehExs[i].bw;
   const last=st[st.length-1]||{reps:'',peso:''};
@@ -5110,6 +5380,7 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(()=>{});
   });
 }
+
 </script>
 </body>
 </html>

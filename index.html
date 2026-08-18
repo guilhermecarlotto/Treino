@@ -78,6 +78,19 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   font-size:10.5px;color:var(--dim);text-transform:uppercase;
   letter-spacing:.6px;margin-bottom:6px;text-align:center;font-weight:700}
 
+/* --- autocomplete de nome de exercício (caixa de sugestões ao digitar) --- */
+.ex-name-wrap{position:relative}
+.ex-sug{display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;
+  background:var(--surface3);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 10px 24px rgba(0,0,0,.4);overflow:hidden;z-index:80;
+  max-height:210px;overflow-y:auto}
+.ex-sug.on{display:block}
+.ex-sug button{display:block;width:100%;text-align:left;background:transparent;
+  border:none;border-bottom:1px solid var(--line);color:var(--txt);
+  font-size:13px;padding:9px 12px}
+.ex-sug button:last-child{border-bottom:none}
+.ex-sug button:active{background:var(--surface2)}
+
 /* --- séries conjugadas (bi-set / tri-set) --- */
 .grp{border:1.5px solid rgba(61,220,151,.32);border-radius:var(--radius);
   background:rgba(61,220,151,.04);padding:8px;margin-bottom:12px}
@@ -557,7 +570,6 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 <div class="toast" id="toast"></div>
 
 <script>
-
 const $=id=>document.getElementById(id);
 let S={workouts:[],history:[],runs:[],plans:[]}, view='home', cur=null, live=null, t0=null, tick=null;
 
@@ -647,6 +659,7 @@ async function load(){
   if(!Array.isArray(S.plans))S.plans=[];
   if(!Array.isArray(S.mobility))S.mobility=[];
   if(!Array.isArray(S.exDict))S.exDict=[]; // nomes de exercício "aprendidos" (correção ortográfica)
+  if(!S.goalsResetAt)S.goalsResetAt=0; // treinos feitos antes disso não contam mais nas metas
   // migra tipos removidos: easy -> regen, tempo -> limiar, race -> longao
   const MIG={easy:'regen',tempo:'limiar',race:'long'};
   S.runs.forEach(r=>{
@@ -755,6 +768,9 @@ function periodCount(kind){
   }else{
     from=new Date(y,0,1).getTime();
   }
+  // treinos feitos antes de um reset de contagem (Ajustes → Metas) não contam mais —
+  // sem isso, "zerar a contagem" não teria efeito nenhum no período em andamento
+  from=Math.max(from,S.goalsResetAt||0);
   return S.history.filter(h=>h.date>=from).length
     + runs().filter(r=>r.date>=from).length
     + S.mobility.filter(m=>m.date>=from).length;
@@ -766,8 +782,8 @@ function streak(){
   let ref=new Date(n); ref.setDate(ref.getDate()-dow); ref.setHours(0,0,0,0);
   let s=0;
   for(let i=0;i<104;i++){
-    const a=ref.getTime(), b=a+7*86400000;
-    const c=S.history.filter(h=>h.date>=a&&h.date<b).length
+    const a=Math.max(ref.getTime(),S.goalsResetAt||0), b=ref.getTime()+7*86400000;
+    const c=a>=b?0:S.history.filter(h=>h.date>=a&&h.date<b).length
       + runs().filter(r=>r.date>=a&&r.date<b).length
       + S.mobility.filter(m=>m.date>=a&&m.date<b).length;
     if(i===0){ if(c>=g)s++; }        // semana atual só conta se já bateu
@@ -919,10 +935,29 @@ function goalsScreen(){
       <div class="stat"><b>${m}/${g.month}</b><span>mês</span></div>
       <div class="stat"><b>${y}/${g.year}</b><span>ano</span></div>
     </div></div>`;
+  h+=`<div class="sec-lbl">Zerar contagem</div>
+    <div class="cfg-row">
+      <div class="ct" style="margin-bottom:3px">Recomeçar do zero</div>
+      <div class="cd2" style="margin-bottom:10px">
+        ${S.goalsResetAt?`Contando desde ${fdate(S.goalsResetAt)}. `:''}
+        Os treinos já feitos até agora deixam de contar nos anéis de progresso — o histórico
+        deles continua intacto, só a contagem da meta é que recomeça do zero. Só mudar os
+        números das metas acima não afeta o que já foi contado.</div>
+      <button class="act" style="color:#ff5a5a" onclick="resetGoalsCount()">↺ Zerar contagem das metas</button>
+    </div>`;
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
 window.preset=async(w,m,y)=>{
   S.goals={week:w,month:m,year:y};await save();render();toast('Metas atualizadas');
+};
+window.resetGoalsCount=async()=>{
+  const ok=await ask('Zerar contagem das metas?',
+    'Os treinos feitos até agora não vão mais contar nos anéis de progresso (semana, mês, ano). '+
+    'Nada é apagado do histórico — só a contagem da meta recomeça do zero a partir de agora.',
+    'Zerar',true);
+  if(!ok)return;
+  S.goalsResetAt=Date.now();
+  await save();render();toast('Contagem das metas zerada');
 };
 
 /* ---------- TAB BAR ---------- */
@@ -956,7 +991,14 @@ window.goTab=async v=>{
     await cleanupAdhoc();
   }
   if(v==='home')view=mod==='run'?'run':(mod==='mobility'?'mob':'home');
-  else if(v==='plan'){plRef=plRef||new Date();view='plan';}
+  else if(v==='plan'){
+    plRef=plRef||new Date();
+    const now=new Date();
+    // só faz sentido pular pra "semana atual" se o mês mostrado for o mês corrente —
+    // se o usuário tinha navegado pra outro mês, abrir a aba não deve resetar isso
+    if(plRef.getFullYear()===now.getFullYear()&&plRef.getMonth()===now.getMonth())plScrollToday=true;
+    view='plan';
+  }
   else if(v==='hist'){
     if(view!=='hist'&&view!=='cal'){hFlt=mod==='run'?'run':(mod==='mobility'?'mobility':'gym');
       hRunT='all';hGymW='all';hGymM='all';hMobW='all';}
@@ -2332,6 +2374,54 @@ async function checkExerciseNameThen(typed,applyFn){
   if(result!=null&&applyFn)applyFn(result);
 }
 
+/* ---------- AUTOCOMPLETE DE NOME DE EXERCÍCIO (caixa de sugestões ao digitar) ----------
+   Diferente da checagem acima (que só age quando o campo perde o foco), isto aparece
+   AO VIVO, a cada tecla: uma pequena lista abaixo do campo com os nomes conhecidos que
+   batem com o que já foi digitado, se ajustando a cada novo caractere. Complementa a
+   checagem de ortografia — ajuda a nunca digitar errado, em vez de só corrigir depois. */
+window.__exSugList=[];
+window.__exSugTarget=null; // {applyFn}
+function exSuggestMatches(query){
+  const q=normEx(query);
+  if(!q)return[];
+  const known=[...new Set(allKnownExerciseNames())];
+  const starts=known.filter(n=>normEx(n).startsWith(q));
+  const contains=known.filter(n=>!normEx(n).startsWith(q)&&normEx(n).includes(q));
+  return[...starts,...contains].slice(0,6);
+}
+// desenha (ou esconde) a caixa de sugestões de um campo específico; applyFn(nome) roda
+// quando o usuário toca numa sugestão
+function renderExSuggestions(boxId,query,applyFn){
+  const box=document.getElementById(boxId);
+  if(!box)return;
+  const list=exSuggestMatches(query);
+  if(!list.length){
+    box.innerHTML='';box.classList.remove('on');
+    if(window.__exSugTarget&&window.__exSugTarget.boxId===boxId)window.__exSugTarget=null;
+    return;
+  }
+  window.__exSugList=list;
+  window.__exSugTarget={boxId,applyFn};
+  box.classList.add('on');
+  box.innerHTML=list.map((n,i)=>
+    `<button type="button" onmousedown="event.preventDefault();pickExSug(${i})">${esc(n)}</button>`).join('');
+}
+function hideExSuggestions(boxId){
+  const box=document.getElementById(boxId);
+  if(box){box.innerHTML='';box.classList.remove('on');}
+  if(window.__exSugTarget&&window.__exSugTarget.boxId===boxId)window.__exSugTarget=null;
+}
+// onmousedown+preventDefault (em vez de onclick) garante que o toque na sugestão é
+// processado ANTES do campo perder o foco — senão o blur escondia a caixa antes do clique
+// "acontecer" de verdade, um problema clássico de autocomplete em HTML puro
+window.pickExSug=i=>{
+  const t=window.__exSugTarget;
+  if(!t)return;
+  const name=window.__exSugList[i];
+  hideExSuggestions(t.boxId);
+  if(name)t.applyFn(name);
+};
+
 /* ---------- DIAGNÓSTICO ---------- */
 window.__log=[];
 function dbg(m){
@@ -2483,6 +2573,10 @@ const WEEK_TPL=[
 ];
 
 let plRef=null;   // mês exibido
+// controla o "pulo" pra semana atual: fica pendente quando a aba Plano é aberta (ou tocada
+// de novo) mostrando o mês corrente — assim que o mês tem uma semana com o dia de hoje,
+// a tela rola até ela em vez de sempre começar no topo do mês
+let plScrollToday=false;
 window.plMove=n=>{const d=new Date(plRef);d.setDate(1);d.setMonth(d.getMonth()+n);plRef=d;render()};
 
 function planScreen(){
@@ -2494,6 +2588,13 @@ function planScreen(){
   let h=planCal(y,mo);
   $('app').innerHTML=h;
   $('fab').innerHTML='';
+  if(plScrollToday){
+    plScrollToday=false;
+    setTimeout(()=>{
+      const el=document.getElementById('pl-week-cur');
+      if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+    },40);
+  }
 }
 let plDel=false;
 
@@ -2582,7 +2683,8 @@ function planCal(y,mo){
     const wd=weekDone(ws).runs;
     const pk=wp.reduce((a,p)=>a+(p.km||0),0);
     const dk=wd.reduce((a,r)=>a+r.km,0);
-    h+=`<div class="pl-week">
+    const isCurWeek=todayK>=dayKey(ws)&&todayK<=dayKey(ws+6*86400000);
+    h+=`<div class="pl-week"${isCurWeek?' id="pl-week-cur"':''}>
       <div class="pl-wh"><span class="pw">Semana ${wi+1}</span>
         ${pk||dk?`<span class="pv">${dk.toFixed(1)} / ${pk.toFixed(0)} km</span>`:''}
         <button class="btn-ghost btn-sm" onclick="tplPick(${ws})">modelo</button></div>
@@ -3679,9 +3781,21 @@ function editW(id){
   window.rmEx=i=>{window.__exs.splice(i,1);
     if(!window.__exs.length)window.__exs.push({name:'',sets:'',reps:'',note:''});drawEx()};
   window.exSet=(i,k,v)=>{window.__exs[i][k]=v};
+  // a cada tecla, mostra sugestões de nomes conhecidos que batem com o que já foi
+  // digitado (caixa "ao vivo", se ajustando conforme digita mais caracteres)
+  window.exNameInputTpl=(i,v)=>{
+    window.__exs[i].name=v;
+    renderExSuggestions('exsug-tpl-'+i,v,name=>{
+      if(!window.__exs[i])return;
+      window.__exs[i].name=name;
+      const el=document.getElementById('exn-'+i);
+      if(el)el.value=name;
+    });
+  };
   // ao sair do campo de nome, confere se bate com a lista de exercícios conhecidos;
   // se não bater, sugere correção (ou confirma que é um exercício novo mesmo)
   window.exNameBlurTpl=i=>{
+    hideExSuggestions('exsug-tpl-'+i);
     const typed=window.__exs[i]&&window.__exs[i].name;
     checkExerciseNameThen(typed,name=>{
       if(!window.__exs[i])return;
@@ -3693,8 +3807,11 @@ function editW(id){
     $('exl').innerHTML=window.__exs.map((e,i)=>`
       <div class="blk ex-blk">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
-          <input class="exn" style="flex:1;font-weight:600" value="${esc(e.name)}"
-            placeholder="Ex: Supino reto" oninput="exSet(${i},'name',this.value)" onblur="exNameBlurTpl(${i})">
+          <div class="ex-name-wrap" style="flex:1;position:relative">
+            <input id="exn-${i}" class="exn" style="width:100%;font-weight:600" value="${esc(e.name)}"
+              placeholder="Ex: Supino reto" oninput="exNameInputTpl(${i},this.value)" onblur="exNameBlurTpl(${i})">
+            <div class="ex-sug" id="exsug-tpl-${i}"></div>
+          </div>
           <button class="btn-ghost" style="padding:9px 11px;flex:none" onclick="rmEx(${i})">✕</button>
         </div>
         <div class="mini-row">
@@ -4093,6 +4210,7 @@ window.finishMob=async()=>{
   const ex=liveM.exercises.filter(e=>e.done).map(e=>({name:e.name,desc:e.desc}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhum exercício foi marcado como feito.','Sair',true))return;
     clearInterval(tickM);await cleanupAdhoc();view='mob';render();return;}
+  if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
   const sec=Math.floor((Date.now()-t0M)/1000);
   const sid=uid();
   const wDone=S.workouts.find(x=>x.id===liveM.wid);
@@ -4232,8 +4350,12 @@ window.openAddEx=()=>{
       <div class="modal-in">
         <h2>Adicionar exercício</h2>
         <div class="field"><label>Nome do exercício</label>
-          <input id="nex" value="${esc(window.__newEx.name)}" placeholder="Ex: Crucifixo"
-            oninput="newExSet('name',this.value)"></div>
+          <div class="ex-name-wrap" style="position:relative">
+            <input id="nex" value="${esc(window.__newEx.name)}" placeholder="Ex: Crucifixo"
+              oninput="exNameInputNex(this.value)" onblur="exNameBlurNex()">
+            <div class="ex-sug" id="exsug-nex"></div>
+          </div>
+        </div>
         <div class="mini-row">
           <div class="mini-f"><label>Séries</label>
             <input type="number" inputmode="numeric" value="${esc(window.__newEx.sets)}"
@@ -4259,6 +4381,15 @@ window.openAddEx=()=>{
     setTimeout(()=>{const el=$('nex');if(el)el.focus()},150);
   };
   window.newExSet=(k,v)=>{window.__newEx[k]=v};
+  window.exNameInputNex=v=>{
+    window.__newEx.name=v;
+    renderExSuggestions('exsug-nex',v,name=>{
+      window.__newEx.name=name;
+      const el=$('nex');
+      if(el)el.value=name;
+    });
+  };
+  window.exNameBlurNex=()=>{hideExSuggestions('exsug-nex');};
   window.tgNewExOnce=()=>{
     const el=$('nex'); if(el)window.__newEx.name=el.value;
     window.__newExOnce=!window.__newExOnce;
@@ -4321,6 +4452,10 @@ window.openSwapEx=i=>{
   const pool=new Set();
   S.workouts.forEach(w=>{ if(w.kind!=='mobility')(w.exercises||[]).forEach(e=>pool.add(e.name)); });
   S.history.forEach(h=>{ (h.exercises||[]).forEach(e=>pool.add(e.name)); });
+  // além dos exercícios já usados em treinos/histórico, também oferece a lista de nomes
+  // conhecidos do app (embutidos + aprendidos) — assim a busca de troca sugere exercícios
+  // "clássicos" mesmo que você nunca os tenha registrado antes
+  allKnownExerciseNames().forEach(n=>pool.add(n));
   window.__swapPool=[...pool].filter(n=>!used.has(n.toLowerCase())).sort((a,b)=>a.localeCompare(b,'pt-BR'));
   drawSwapEx();
 };
@@ -4359,10 +4494,16 @@ function renderSwapRes(){
     :`<div class="empty" style="padding:14px 6px">${window.__swapPool.length?'Nenhum exercício encontrado.':'Nenhum outro exercício cadastrado ainda — digite um nome novo abaixo.'}</div>`;
 }
 window.swapExQ=v=>{window.__swapQ=v;renderSwapRes();};
-window.confirmSwapExCustom=()=>{
+window.confirmSwapExCustom=async()=>{
   const el=$('swapq');
-  const name=(el?el.value:'').trim();
+  let name=(el?el.value:'').trim();
   if(!name)return toast('Digite um nome ou escolha um da lista');
+  const nm=matchExerciseName(name);
+  if(nm.status==='suggest'||nm.status==='new'){
+    const result=await askExerciseNameCheck(name,nm.status==='suggest'?nm.suggestion:null);
+    if(result==null)return; // "Corrigir": deixa o modal de troca aberto pro usuário ajustar
+    name=result;
+  }
   doSwapEx(name);
 };
 function doSwapEx(name){
@@ -4387,6 +4528,7 @@ window.finish=async()=>{
     sets:x.sets}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
+  if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
   const dur=Math.floor((Date.now()-t0)/60000);
   const sid=uid();
   const wDone=S.workouts.find(x=>x.id===live.wid);
@@ -5425,7 +5567,6 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(()=>{});
   });
 }
-
 </script>
 </body>
 </html>

@@ -2768,12 +2768,26 @@ window.planUndoAsk=async p=>{
     else if(p.kind==='mobility'){nome=mobPlanLabel(p);}
     else{nome=gymPlanLabel(p);}
   }catch(e){nome='Este treino';}
-  const ok=await ask('Desfazer treino feito?',
-    `"${nome}" em ${fdate(p.date)} está marcado como feito. Desfazer volta o plano para pendente — `+
-    `o registro já salvo no histórico não é apagado.`,'Desfazer',true);
+  // corrida: o "feito" é sempre 1:1 com uma corrida registrada — desfazer também apaga
+  // essa corrida do histórico (senão sobraria uma corrida "solta", sem plano nenhum
+  // apontando pra ela, inflando estatísticas/calendário sem o usuário perceber).
+  // musculação e mobilidade: o registro guarda séries/cargas ou exercícios feitos à mão,
+  // que têm valor por si só — desfazer a marcação só solta o plano de volta pra pendente,
+  // sem tocar no que já foi salvo no histórico.
+  const isRunKind=p.kind==='run';
+  const texto=isRunKind
+    ?`"${nome}" em ${fdate(p.date)} está marcado como feito. Desfazer volta o plano para pendente `+
+      `e apaga a corrida registrada no histórico.`
+    :`"${nome}" em ${fdate(p.date)} está marcado como feito. Desfazer volta o plano para pendente — `+
+      `o registro já salvo no histórico não é apagado.`;
+  const ok=await ask('Desfazer treino feito?',texto,'Desfazer',true);
   if(!ok)return;
+  if(isRunKind&&p.doneId){
+    const idx=S.runs.findIndex(x=>x.id===p.doneId);
+    if(idx>=0)S.runs.splice(idx,1);
+  }
   p.doneId=null;
-  await save();closeM();render();toast('Marcação desfeita — plano voltou a pendente');
+  await save();closeM();render();toast(isRunKind?'Marcação desfeita — corrida removida do histórico':'Marcação desfeita — plano voltou a pendente');
 };
 window.pfSet=(k,v)=>{PF[k]=v;if(k==='type')pfSyncShots();drawPlanForm()};
 window.pfBlk=(b,k,v)=>{PF[b][k]=v;updPlanCalc()};
@@ -5256,9 +5270,11 @@ window.importPlanOpen=()=>{
       <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
         Selecione o arquivo <code>.json</code> exportado pelo planejador de corrida do computador.
         Os treinos planejados no arquivo sao <b style="color:var(--txt)">adicionados</b> ao que ja
-        existe aqui — nada do que voce ja treinou ou ja planejou no app e apagado. Se reimportar um
-        arquivo com um dia repetido, aquele plano e apenas atualizado (a menos que ja tenha sido
-        concluido, ai ele fica como esta).</p>
+        existe aqui, e o que ja foi treinado nunca e apagado. A partir do primeiro dia coberto pelo
+        arquivo, os planos <b style="color:var(--txt)">ainda pendentes</b> que nao vieram nesta
+        importacao sao removidos — ou seja, o arquivo passa a valer como o planejamento oficial dali
+        pra frente. Se reimportar um dia repetido, aquele plano e apenas atualizado (a menos que ja
+        tenha sido concluido, ai ele fica como esta).</p>
       <div class="stats" style="margin:0 0 14px">
         <div class="stat"><b>${plans().length}</b><span>planejados hoje</span></div>
         <div class="stat"><b>${nPend}</b><span>futuros</span></div>
@@ -5283,6 +5299,7 @@ window.doImportPlan=inp=>{
     if(!Array.isArray(S.plans))S.plans=[];
     const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level'];
     const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
+    const KEEP_MOB=['mode','wid','regions','tags','exercises'];
     // monta a lista de mudancas sem tocar em S.plans ainda (so aplica apos confirmacao)
     const ops=[]; // {mode:'add'|'update'|'skip'|'invalid', clean, idx}
     list.forEach(p=>{
@@ -5296,6 +5313,14 @@ window.doImportPlan=inp=>{
         if(!okWorkout&&!okMuscles&&!okCustom){ops.push({mode:'invalid'});return;}
         clean={id:(p.id?String(p.id):uid()),kind:'gym',date:Number(p.date),mode,note:(p.note||'').trim()};
         KEEP_GYM.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
+      }else if(p.kind==='mobility'){
+        const mode=p.mode||(p.wid?'workout':(((Array.isArray(p.regions)&&p.regions.length)||(Array.isArray(p.tags)&&p.tags.length))?'regions':'custom'));
+        const okWorkout=mode==='workout'&&p.wid;
+        const okRegions=mode==='regions'&&((Array.isArray(p.regions)&&p.regions.length)||(Array.isArray(p.tags)&&p.tags.length));
+        const okCustom=mode==='custom'&&Array.isArray(p.exercises)&&p.exercises.length;
+        if(!okWorkout&&!okRegions&&!okCustom){ops.push({mode:'invalid'});return;}
+        clean={id:(p.id?String(p.id):uid()),kind:'mobility',date:Number(p.date),mode,note:(p.note||'').trim()};
+        KEEP_MOB.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
       }else{
         if(!p.type||!RUN_TYPES.some(t=>t[0]===p.type)){ops.push({mode:'invalid'});return;}
         clean={id:(p.id?String(p.id):uid()),kind:'run',date:Number(p.date),
@@ -5306,11 +5331,22 @@ window.doImportPlan=inp=>{
       if(idx>=0){
         if(S.plans[idx].doneId){ops.push({mode:'skip'});return;}
         clean.doneId=S.plans[idx].doneId;
-        ops.push({mode:'update',clean,idx});
+        ops.push({mode:'update',clean});
       }else{
         ops.push({mode:'add',clean});
       }
     });
+    // o planejamento importado passa a "valer" a partir do dia mais cedo que ele cobre:
+    // qualquer plano pendente do app (ainda nao concluido) dentro dessa mesma janela que
+    // NAO veio no arquivo e considerado desatualizado (foi removido/trocado no PC) e e
+    // apagado daqui, pra nao ficar uma mistura do planejamento antigo com o novo
+    const validCleans=ops.filter(o=>o.clean).map(o=>o.clean);
+    let stale=[];
+    if(validCleans.length){
+      const minDate=Math.min(...validCleans.map(c=>c.date));
+      const importedIds=new Set(validCleans.map(c=>c.id));
+      stale=S.plans.filter(p=>!p.doneId&&p.date>=minDate&&!importedIds.has(p.id));
+    }
     const added=ops.filter(o=>o.mode==='add').length;
     const updated=ops.filter(o=>o.mode==='update').length;
     const skipped=ops.filter(o=>o.mode==='skip').length;
@@ -5318,12 +5354,21 @@ window.doImportPlan=inp=>{
     if(!added&&!updated){
       return toast(skipped?`Nada novo — ${skipped} ja concluido(s)`:'Nenhum plano valido no arquivo');
     }
-    const det=`Adicionados: ${added}\nAtualizados: ${updated}\nIgnorados (ja concluidos): ${skipped}`+
+    const det=`Adicionados: ${added}\nAtualizados: ${updated}`+
+      (stale.length?`\nRemovidos (fora do novo planejamento): ${stale.length}`:'')+
+      `\nIgnorados (ja concluidos): ${skipped}`+
       (invalid?`\nInvalidos ignorados: ${invalid}`:'');
     if(!await ask('Importar planejamento?',det,'Importar',false))return; // cancelado: nada foi tocado
+    if(stale.length){
+      const staleIds=new Set(stale.map(p=>p.id));
+      S.plans=S.plans.filter(p=>!staleIds.has(p.id));
+    }
     ops.forEach(o=>{
       if(o.mode==='add')S.plans.push(o.clean);
-      else if(o.mode==='update')S.plans[o.idx]=o.clean;
+      else if(o.mode==='update'){
+        const idx=S.plans.findIndex(x=>x.id===o.clean.id);
+        if(idx>=0)S.plans[idx]=o.clean; else S.plans.push(o.clean);
+      }
     });
     await save();closeM();plRef=null;view='plan';render();toast('Planejamento importado');
   };

@@ -1333,6 +1333,10 @@ function structSummary(r){
     const on=r.fk.on;
     if(blkKm(on)||blkSec(on))
       p.push(`<b>Limiar</b> ${blkKm(on).toFixed(2)} km em ${fmtDur(blkSec(on))}${pc(blkKm(on),blkSec(on))}`);
+  }else if(r.type==='rodagem'&&r.rwMode==='on'&&r.rw){
+    const run=r.rw.run, walk=r.rw.walk, n=r.rwReps||1;
+    p.push(`<b>${n}×</b> 🏃 correndo ${blkKm(run).toFixed(2)} km/${fmtDur(blkSec(run))}${pc(blkKm(run),blkSec(run))}`);
+    p.push(`<b>&nbsp;&nbsp;&nbsp;</b> 🚶 caminhando ${blkKm(walk).toFixed(2)} km/${fmtDur(blkSec(walk))}${pc(blkKm(walk),blkSec(walk))}`);
   }
   if(ck||cs)p.push(`<b>Desaq.</b> ${ck?ck.toFixed(2)+' km':''}${ck&&cs?' · ':''}${cs?fmtDur(cs):''}${pc(ck,cs)}`);
   return p.length?`<div class="struct">${p.join('<br>')}</div>`:'';
@@ -1396,7 +1400,8 @@ window.runForm=id=>{
   const r=id?runs().find(x=>x.id===id):null;
   RF=r?JSON.parse(JSON.stringify(r)):{
     id:null,date:Date.now(),type:'rodagem',km:'',h:'',m:'',s:'',level:'moderado',surf:'rua',note:'',
-    wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()}};
+    wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},
+    rwMode:'off',rw:{run:blank(),walk:blank()},rwReps:6};
   if(!RF.level)RF.level=runLevel(RF)||'moderado'; // compat com registros antigos em RPE numérico
   RF.tmode='pace';
   if(r){
@@ -1412,6 +1417,11 @@ window.runForm=id=>{
     RF.reps=r.reps||6; RF.shots=r.shots||[];
     RF.fk=r.fk||{on:blank(),off:blank()};
     RF.surf=r.surf||'rua';
+    // rodagem em run-walk (intercalando corrida e caminhada) — compat: registros antigos
+    // (ou de outros tipos) não têm nada disso, então caem no modo contínuo de sempre
+    RF.rwMode=r.rwMode||'off';
+    RF.rw=r.rw||{run:blank(),walk:blank()};
+    RF.rwReps=r.rwReps||6;
   }
   syncShots();
   drawRunForm();
@@ -1426,6 +1436,10 @@ window.rfSet=(k,v)=>{RF[k]=v;if(k==='type')syncShots();drawRunForm()};
 window.rfNum=(k,v)=>{RF[k]=v;updPace()};
 window.rfBlk=(b,k,v)=>{RF[b][k]=v;updPace()};
 window.rfFk=(w,k,v)=>{RF.fk[w][k]=v;updPace()};
+// --- rodagem intercalando corrida e caminhada (run-walk) ---
+window.rfRwMode=v=>{RF.rwMode=v;drawRunForm()};
+window.rfRwReps=n=>{RF.rwReps=Math.max(1,Math.min(60,n));drawRunForm()};
+window.rfRw=(w,k,v)=>{RF.rw[w][k]=v;updPace()};
 window.rfShot=(i,k,v)=>{RF.shots[i][k]=v;updPace()};
 window.rfReps=n=>{
   RF.reps=Math.max(1,Math.min(40,n));
@@ -1453,6 +1467,14 @@ window.rfFkPace=(w,field,val)=>{
   b.m=Math.floor(sec/60); b.s=sec%60;
   updPace();
 };
+window.rfRwPace=(w,field,val)=>{
+  const b=RF.rw[w];
+  const cur=paceMS(blkKm(b),blkSec(b));
+  const pm=field==='m'?val:cur.m, ps=field==='s'?val:cur.s;
+  const sec=timeFromPaceKm(pm,ps,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPace();
+};
 window.rfShotPace=(i,field,val)=>{
   const b=RF.shots[i];
   const cur=paceMS(blkKm(b),blkSec(b));
@@ -1472,6 +1494,12 @@ window.rfNumPace=(field,val)=>{
 // --- modo "Velocidade" (km/h): converte para tempo usando a distância do próprio bloco ---
 window.rfBlkSpeed=(key,val)=>{
   const b=RF[key];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPace();
+};
+window.rfRwSpeed=(w,val)=>{
+  const b=RF.rw[w];
   const sec=timeFromSpeedKm(val,blkKm(b));
   b.m=Math.floor(sec/60); b.s=sec%60;
   updPace();
@@ -1522,7 +1550,12 @@ function structTotals(obj){
   }else if(t==='limiar'){
     mainKm=blkKm(obj.fk.on);
     mainSec=blkSec(obj.fk.on);
-  }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo)
+  }else if(t==='rodagem'&&obj.rwMode==='on'&&obj.rw){
+    // rodagem intercalando corrida e caminhada: soma (corrida+caminhada) × nº de vezes intercalado
+    const n=obj.rwReps||1;
+    mainKm=(blkKm(obj.rw.run)+blkKm(obj.rw.walk))*n;
+    mainSec=(blkSec(obj.rw.run)+blkSec(obj.rw.walk))*n;
+  }else{ // rodagem contínua, regenerativo e longão: parte principal direta (distância + tempo)
     mainKm=parseFloat(String(obj.km).replace(',','.'))||0;
     mainSec=(parseInt(obj.h)||0)*3600+(parseInt(obj.m)||0)*60+(parseInt(obj.s)||0);
   }
@@ -1717,32 +1750,83 @@ function drawRunForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(RF.fk.on.s)}" placeholder="00" oninput="rfFk('on','s',this.value)">
             </div></div>`}</div></div>`;
-    }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo)
-      h+=`<div class="blk">
-        <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-        <div class="mini-row">
-          <div class="mini-f"><label>Distância (km)</label>
-            <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
-              placeholder="10.00" oninput="rfNum('km',this.value)"></div>
-          ${RF.tmode==='pace'?`<div class="mini-f"><label>Pace (min : s /km)</label>
-            <div class="dur2">
-              <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
-            </div></div>`:
-          RF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
-            <input type="number" inputmode="decimal" step="0.1"
-              value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
-              placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
-          `<div class="mini-f"><label>Tempo (h:min:s)</label>
-            <div class="dur-row">
-              <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
-            </div></div>`}
-        </div></div>`;
+    }else{ // rodagem, regenerativo e longão: parte principal
+      // só a rodagem oferece intercalar corrida e caminhada — regenerativo e longão
+      // continuam com distância + tempo direto, como sempre
+      if(t==='rodagem'){
+        h+=`<div class="field"><label>Como foi a parte principal</label>
+          <div class="seg" style="margin-bottom:10px">
+            <button class="${(RF.rwMode||'off')==='off'?'on':''}" onclick="rfRwMode('off')">🏃 Correr sem parar</button>
+            <button class="${RF.rwMode==='on'?'on':''}" onclick="rfRwMode('on')">🔁 Corrida + caminhada</button>
+          </div></div>`;
+      }
+      if(t==='rodagem'&&RF.rwMode==='on'){
+        h+=`<div class="rep-ctl">
+          <span class="rl">Quantas vezes intercalou</span>
+          <button ${RF.rwReps<=1?'disabled':''} onclick="rfRwReps(${RF.rwReps-1})">−</button>
+          <span class="rv">${RF.rwReps}</span>
+          <button ${RF.rwReps>=60?'disabled':''} onclick="rfRwReps(${RF.rwReps+1})">+</button></div>`;
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Correndo</span>
+            <span class="bs">cada intercalação</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.rw.run.km)}"
+                placeholder="0.40" oninput="rfRw('run','km',this.value)"></div>
+            ${RF.tmode==='pace'?fkPaceHTML(RF.rw.run,'rfRwPace','run'):
+            RF.tmode==='speed'?fkSpeedHTML(RF.rw.run,'rfRwSpeed','run'):
+            `<div class="mini-f"><label>Tempo (min : s)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${esc(RF.rw.run.m)}" placeholder="2" oninput="rfRw('run','m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(RF.rw.run.s)}" placeholder="00" oninput="rfRw('run','s',this.value)">
+              </div></div>`}</div></div>`;
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🚶</span><span class="bt">Caminhando</span>
+            <span class="bs">cada intercalação</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.rw.walk.km)}"
+                placeholder="0.20" oninput="rfRw('walk','km',this.value)"></div>
+            ${RF.tmode==='pace'?fkPaceHTML(RF.rw.walk,'rfRwPace','walk'):
+            RF.tmode==='speed'?fkSpeedHTML(RF.rw.walk,'rfRwSpeed','walk'):
+            `<div class="mini-f"><label>Tempo (min : s)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${esc(RF.rw.walk.m)}" placeholder="1" oninput="rfRw('walk','m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(RF.rw.walk.s)}" placeholder="30" oninput="rfRw('walk','s',this.value)">
+              </div></div>`}</div></div>`;
+        const rwTotKm=(blkKm(RF.rw.run)+blkKm(RF.rw.walk))*(RF.rwReps||1);
+        const rwTotSec=(blkSec(RF.rw.run)+blkSec(RF.rw.walk))*(RF.rwReps||1);
+        h+=`<div class="calc-tot" style="margin-bottom:12px"><div class="ct2">
+          <span>Total da parte principal</span><b>${rwTotKm.toFixed(2)} km · ${fmtDur(rwTotSec)}</b></div></div>`;
+      }else{
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
+                placeholder="10.00" oninput="rfNum('km',this.value)"></div>
+            ${RF.tmode==='pace'?`<div class="mini-f"><label>Pace (min : s /km)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
+              </div></div>`:
+            RF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
+              <input type="number" inputmode="decimal" step="0.1"
+                value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
+                placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
+            `<div class="mini-f"><label>Tempo (h:min:s)</label>
+              <div class="dur-row">
+                <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
+              </div></div>`}
+          </div></div>`;
+      }
     }
     h+=blkHTML(RF,'rfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcbox"></div>`;
@@ -1812,6 +1896,7 @@ window.saveRun=async()=>{
     if(RF.type==='inter'){rec.reps=RF.reps;rec.shots=RF.shots;}
     else if(RF.type==='fartlek'){rec.fk=RF.fk;rec.reps=RF.reps;}
     else if(RF.type==='limiar'){rec.fk=RF.fk;}
+    else if(RF.type==='rodagem'&&RF.rwMode==='on'){rec.rwMode='on';rec.rw=RF.rw;rec.rwReps=RF.rwReps;}
     rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
   }
   S.runs=runs().filter(x=>x.id!==rec.id);
@@ -2744,7 +2829,7 @@ function planCal(y,mo){
 let PF=null;
 function pfBlank(){
   return{wu:blank(),cd:blank(),reps:6,shots:[],fk:{on:blank(),off:blank()},tmode:'pace',level:'moderado',
-    h:'',m:'',s:''};
+    h:'',m:'',s:'',rwMode:'off',rw:{run:blank(),walk:blank()},rwReps:6};
 }
 function pfSecs(){return (parseInt(PF.h)||0)*3600+(parseInt(PF.m)||0)*60+(parseInt(PF.s)||0);}
 function pfSyncShots(){
@@ -2913,6 +2998,10 @@ function updPlanPace(){
     :`<b style="color:var(--dim)">—</b><span>tempo alvo opcional — preencha pra ver o pace</span>`;
 }
 window.pfFk=(w,k,v)=>{PF.fk[w][k]=v;updPlanCalc()};
+// --- rodagem intercalando corrida e caminhada (run-walk), no planejamento ---
+window.pfRwMode=v=>{PF.rwMode=v;drawPlanForm()};
+window.pfRwReps=n=>{PF.rwReps=Math.max(1,Math.min(60,n));drawPlanForm()};
+window.pfRw=(w,k,v)=>{PF.rw[w][k]=v;updPlanCalc()};
 window.pfShot=(i,k,v)=>{PF.shots[i][k]=v;updPlanCalc()};
 window.pfReps=n=>{
   PF.reps=Math.max(1,Math.min(40,n));
@@ -2940,6 +3029,14 @@ window.pfFkPace=(w,field,val)=>{
   b.m=Math.floor(sec/60); b.s=sec%60;
   updPlanCalc();
 };
+window.pfRwPace=(w,field,val)=>{
+  const b=PF.rw[w];
+  const cur=paceMS(blkKm(b),blkSec(b));
+  const pm=field==='m'?val:cur.m, ps=field==='s'?val:cur.s;
+  const sec=timeFromPaceKm(pm,ps,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPlanCalc();
+};
 window.pfShotPace=(i,field,val)=>{
   const b=PF.shots[i];
   const cur=paceMS(blkKm(b),blkSec(b));
@@ -2961,6 +3058,12 @@ window.pfNumSpeed=val=>{
 };
 window.pfBlkSpeed=(key,val)=>{
   const b=PF[key];
+  const sec=timeFromSpeedKm(val,blkKm(b));
+  b.m=Math.floor(sec/60); b.s=sec%60;
+  updPlanCalc();
+};
+window.pfRwSpeed=(w,val)=>{
+  const b=PF.rw[w];
   const sec=timeFromSpeedKm(val,blkKm(b));
   b.m=Math.floor(sec/60); b.s=sec%60;
   updPlanCalc();
@@ -3002,6 +3105,7 @@ window.savePlan=async()=>{
       if(PF.type==='inter'){rec.reps=PF.reps;rec.shots=PF.shots;}
       else if(PF.type==='fartlek'){rec.fk=PF.fk;rec.reps=PF.reps;}
       else if(PF.type==='limiar'){rec.fk=PF.fk;}
+      else if(PF.type==='rodagem'&&PF.rwMode==='on'){rec.rwMode='on';rec.rw=PF.rw;rec.rwReps=PF.rwReps;}
       rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
     }else{
       // (inalcançável: HAS_WU cobre todos os tipos de corrida)
@@ -3305,33 +3409,84 @@ function drawPlanForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(PF.fk.on.s)}" placeholder="00" oninput="pfFk('on','s',this.value)">
             </div></div>`}</div></div>`;
-    }else{ // rodagem, regenerativo e longão: parte principal direta (distância + tempo, opcional)
-      const pfpv2=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
-      h+=`<div class="blk">
-        <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-        <div class="mini-row">
-          <div class="mini-f"><label>Distância (km)</label>
-            <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
-              placeholder="10.00" oninput="pfNum('km',this.value)"></div>
-          ${PF.tmode==='pace'?`<div class="mini-f"><label>Pace alvo (min : s /km)</label>
-            <div class="dur2">
-              <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
-            </div></div>`:
-          PF.tmode==='speed'?`<div class="mini-f"><label>Velocidade alvo (km/h)</label>
-            <input type="number" inputmode="decimal" step="0.1"
-              value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
-              placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
-          `<div class="mini-f"><label>Tempo alvo (h:min:s)</label>
-            <div class="dur-row">
-              <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
-            </div></div>`}
-        </div></div>`;
+    }else{ // rodagem, regenerativo e longão: parte principal (alvo do plano)
+      // só a rodagem oferece planejar intercalando corrida e caminhada — regenerativo e
+      // longão continuam com distância + tempo alvo direto, como sempre
+      if(t==='rodagem'){
+        h+=`<div class="field"><label>Como planejar a parte principal</label>
+          <div class="seg" style="margin-bottom:10px">
+            <button class="${(PF.rwMode||'off')==='off'?'on':''}" onclick="pfRwMode('off')">🏃 Correr sem parar</button>
+            <button class="${PF.rwMode==='on'?'on':''}" onclick="pfRwMode('on')">🔁 Corrida + caminhada</button>
+          </div></div>`;
+      }
+      if(t==='rodagem'&&PF.rwMode==='on'){
+        h+=`<div class="rep-ctl">
+          <span class="rl">Quantas vezes intercalar</span>
+          <button ${PF.rwReps<=1?'disabled':''} onclick="pfRwReps(${PF.rwReps-1})">−</button>
+          <span class="rv">${PF.rwReps}</span>
+          <button ${PF.rwReps>=60?'disabled':''} onclick="pfRwReps(${PF.rwReps+1})">+</button></div>`;
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Correndo</span>
+            <span class="bs">cada intercalação</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.rw.run.km)}"
+                placeholder="0.40" oninput="pfRw('run','km',this.value)"></div>
+            ${PF.tmode==='pace'?fkPaceHTML(PF.rw.run,'pfRwPace','run'):
+            PF.tmode==='speed'?fkSpeedHTML(PF.rw.run,'pfRwSpeed','run'):
+            `<div class="mini-f"><label>Tempo (min : s)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${esc(PF.rw.run.m)}" placeholder="2" oninput="pfRw('run','m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(PF.rw.run.s)}" placeholder="00" oninput="pfRw('run','s',this.value)">
+              </div></div>`}</div></div>`;
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🚶</span><span class="bt">Caminhando</span>
+            <span class="bs">cada intercalação</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.rw.walk.km)}"
+                placeholder="0.20" oninput="pfRw('walk','km',this.value)"></div>
+            ${PF.tmode==='pace'?fkPaceHTML(PF.rw.walk,'pfRwPace','walk'):
+            PF.tmode==='speed'?fkSpeedHTML(PF.rw.walk,'pfRwSpeed','walk'):
+            `<div class="mini-f"><label>Tempo (min : s)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${esc(PF.rw.walk.m)}" placeholder="1" oninput="pfRw('walk','m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(PF.rw.walk.s)}" placeholder="30" oninput="pfRw('walk','s',this.value)">
+              </div></div>`}</div></div>`;
+        const rwTotKmP=(blkKm(PF.rw.run)+blkKm(PF.rw.walk))*(PF.rwReps||1);
+        const rwTotSecP=(blkSec(PF.rw.run)+blkSec(PF.rw.walk))*(PF.rwReps||1);
+        h+=`<div class="calc-tot" style="margin-bottom:12px"><div class="ct2">
+          <span>Total da parte principal</span><b>${rwTotKmP.toFixed(2)} km · ${fmtDur(rwTotSecP)}</b></div></div>`;
+      }else{
+        const pfpv2=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
+        h+=`<div class="blk">
+          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
+          <div class="mini-row">
+            <div class="mini-f"><label>Distância (km)</label>
+              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
+                placeholder="10.00" oninput="pfNum('km',this.value)"></div>
+            ${PF.tmode==='pace'?`<div class="mini-f"><label>Pace alvo (min : s /km)</label>
+              <div class="dur2">
+                <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
+              </div></div>`:
+            PF.tmode==='speed'?`<div class="mini-f"><label>Velocidade alvo (km/h)</label>
+              <input type="number" inputmode="decimal" step="0.1"
+                value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
+                placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
+            `<div class="mini-f"><label>Tempo alvo (h:min:s)</label>
+              <div class="dur-row">
+                <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
+                <div class="sep">:</div>
+                <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
+              </div></div>`}
+          </div></div>`;
+      }
     }
     h+=blkHTML(PF,'pfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcboxP"></div>`;
@@ -5439,7 +5594,7 @@ window.doImportPlan=inp=>{
     const list=Array.isArray(d)?d:(Array.isArray(d&&d.plans)?d.plans:null);
     if(!list)return toast('Nao parece um arquivo de planejamento de corrida');
     if(!Array.isArray(S.plans))S.plans=[];
-    const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level'];
+    const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level','rwMode','rw','rwReps'];
     const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
     const KEEP_MOB=['mode','wid','regions','tags','exercises'];
     // monta a lista de mudancas sem tocar em S.plans ainda (so aplica apos confirmacao)

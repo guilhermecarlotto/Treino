@@ -3886,15 +3886,13 @@ function editW(id){
   let exs=w.exercises.map(e=>typeof e==='string'
     ?{name:e,sets:'',reps:'',note:'',link:false}
     :{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:!!e.link});
-  if(!exs.length)exs=[{name:'',sets:'',reps:'',note:'',link:false}];
+  // treino novo já começa com 5 exercícios em branco prontos pra preencher, em vez de 1
+  if(!exs.length)exs=Array.from({length:5},()=>({name:'',sets:'',reps:'',note:'',link:false}));
   window.__adhoc=false;
   window.__exs=exs;
+  // grupos musculares não são mais escolhidos aqui (a tela começa direto pelo nome do
+  // treino), mas um treino já existente que tinha essa marcação continua com ela salva
   window.__muscles=(w.muscles||[]).slice();
-  // acompanha se o nome atual ainda "pertence" à sugestão automática, pra saber
-  // se pode continuar atualizando o campo conforme os grupos mudam ou se o
-  // usuário já customizou o nome manualmente (nesse caso, para de mexer nele)
-  window.__lastAuto=suggestWorkoutName(window.__muscles);
-  if(w.name!==window.__lastAuto)window.__lastAuto=null;
   const draw=()=>{
     const ad=window.__adhoc;
     // aqui a rolagem só pode ser restaurada DEPOIS de drawEx() preencher os
@@ -3906,10 +3904,6 @@ function editW(id){
     modalEl.innerHTML=`<div class="modal">
       <div class="modal-in">
         <h2>${id?'Editar treino':'Novo treino'}</h2>
-        <div class="field"><label>Grupos musculares</label>
-          <div class="type-grid" style="--rc2:var(--accent)">${MUSCLE_GROUPS.map(([k,l,ic])=>
-            `<button class="type-b ${window.__muscles.includes(k)?'on':''}" onclick="tgMuscle('${k}')">
-              <span class="te">${ic}</span>${l}</button>`).join('')}</div></div>
         <div class="field"><label>Nome do treino</label>
           <input id="wn" value="${esc(w.name)}" placeholder="${ad?'Ex: Academia do hotel':'Ex: Peito e Tríceps'}"></div>
         <label>Exercícios</label>
@@ -3929,16 +3923,6 @@ function editW(id){
     drawEx();
     const newBox=modalEl.querySelector('.modal-in');
     if(newBox)newBox.scrollTop=prevScroll;
-  };
-  window.tgMuscle=k=>{
-    const el=$('wn'); if(el)w.name=el.value;   // preserva o que foi digitado até agora
-    const i=window.__muscles.indexOf(k);
-    if(i>=0)window.__muscles.splice(i,1); else window.__muscles.push(k);
-    if(window.__lastAuto!==null&&w.name===window.__lastAuto){
-      w.name=suggestWorkoutName(window.__muscles);
-      window.__lastAuto=w.name;
-    }
-    draw();
   };
   window.tgAdhoc=()=>{
     const el=$('wn'); if(el)w.name=el.value;   // preserva o que foi digitado
@@ -5066,24 +5050,16 @@ function repWorkout(){
     if(!w)lbl+=' [excluído]';
     return{id,lbl};
   });
-  // grupos musculares usados em pelo menos uma sessão — permitem ver a evolução
-  // de "Peito", por exemplo, somando sessões de treinos diferentes que tenham essa tag
-  const usedM=MUSCLE_GROUPS.filter(g=>S.history.some(h=>(h.muscles||[]).includes(g[0])));
-  const mOpts=usedM.map(g=>({id:'m:'+g[0],lbl:`${g[2]} Grupo: ${g[1]}`}));
-  const opts=[...wOpts,...mOpts];
+  const opts=wOpts;
   const sel=opts.find(o=>o.id===repSel)?repSel:opts[0].id;
-  let h=`<div class="field"><label>Selecione o treino ou grupo muscular</label>
+  let h=`<div class="field"><label>Selecione o treino</label>
     <select onchange="setSel(this.value)">
-      ${wOpts.length?`<optgroup label="Treinos">${wOpts.map(o=>
-        `<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.lbl)}</option>`).join('')}</optgroup>`:''}
-      ${mOpts.length?`<optgroup label="Grupos musculares">${mOpts.map(o=>
-        `<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.lbl)}</option>`).join('')}</optgroup>`:''}
+      ${wOpts.map(o=>
+        `<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.lbl)}</option>`).join('')}
     </select></div>`;
-  const isM=sel.startsWith('m:');
-  const ss=(isM?S.history.filter(x=>(x.muscles||[]).includes(sel.slice(2)))
-    :S.history.filter(x=>x.wid===sel)).sort((a,b)=>a.date-b.date);
+  const ss=S.history.filter(x=>x.wid===sel).sort((a,b)=>a.date-b.date);
   if(ss.length<2){
-    return h+`<div class="empty">Apenas ${ss.length} sessão registrada ${isM?'deste grupo muscular':'deste treino'}.<br>São necessárias pelo menos 2 para comparar.</div>`;
+    return h+`<div class="empty">Apenas ${ss.length} sessão registrada deste treino.<br>São necessárias pelo menos 2 para comparar.</div>`;
   }
   const vols=ss.map(s=>s.exercises.reduce((a,e)=>a+volOf(e.sets),0));
   const labs=ss.map(s=>fdate(s.date).slice(0,5));

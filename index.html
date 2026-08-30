@@ -133,6 +133,11 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   border-radius:18px 18px 0 0;padding:18px 16px calc(env(safe-area-inset-bottom) + 18px);
   max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .modal-in h2{margin:0 0 14px;font-size:17px}
+.modal-h{display:flex;align-items:center;gap:2px}
+.modal-h h2{margin:0;flex:1}
+.hdr-back{background:transparent;color:var(--dim);padding:6px 8px 6px 0;
+  font-size:20px;line-height:1;flex:none;font-weight:700}
+.hdr-back:active{color:var(--txt)}
 .ex-item{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .ex-item input{flex:1}
 .ex-item button{padding:10px 12px}
@@ -2575,6 +2580,7 @@ function handleAct(ev){
   try{
     if(act==='delplan')delPlanNow(arg);
     else if(act==='editplan')planEdit(arg);
+    else if(act==='histday')histDayDetail(arg);
     else if(act==='swapex')doSwapEx(window.__swapFiltered[parseInt(arg)]);
     else dbg('acao desconhecida: '+act);
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
@@ -2698,6 +2704,104 @@ function planScreen(){
 }
 let plDel=false;
 
+// remove do plano os treinos passados que nunca foram feitos: de ontem pra trás
+// a aba Plano passou a ser histórico puro, então planejamento não cumprido não
+// faz mais sentido continuar aparecendo ali (não é uma exclusão pedida pelo
+// usuário, então não pede confirmação — é consequência automática de virar passado)
+function purgeStalePlans(){
+  const todayK=dayKey(Date.now());
+  const before=(S.plans||[]).length;
+  S.plans=(S.plans||[]).filter(p=>p.doneId||dayKey(p.date)>=todayK);
+  if(S.plans.length!==before)save();
+}
+// junta tudo que foi realmente feito num dia passado, direto dos registros reais
+// (histórico de musculação, corridas, mobilidade) — não do plano, que pode nem
+// existir mais (foi cumprido e o plano permanece só como referência, ou nunca foi
+// cumprido e já foi removido por purgeStalePlans)
+function historyItemsOn(k){
+  const items=[];
+  (S.history||[]).forEach(s=>{if(dayKey(s.date)===k)items.push({kind:'gym',d:s});});
+  runs().forEach(r=>{if(dayKey(r.date)===k)items.push({kind:'run',d:r});});
+  (S.mobility||[]).forEach(m=>{if(dayKey(m.date)===k)items.push({kind:'mobility',d:m});});
+  return items.sort((a,b)=>a.d.date-b.d.date);
+}
+// item de um dia já passado no calendário — sempre "feito", sempre lendo do
+// registro real (não do plano original), e sem botão de "+ planejar"/excluir
+function historyItemHTML(it){
+  const p=it.d;
+  if(it.kind==='run'){
+    const t=rType(p.type);
+    return `<div class="pl-item done" style="--pc2:${t[3]}">
+      <div class="pi" data-act="histday" data-arg="run:${p.id}"><b>${t[2]} ${t[1]}</b></div>
+      <span class="pk">${p.km?p.km.toFixed(2)+' km':''}${p.sec?`<br>${fmtPace(paceOf(p.km,p.sec))}/km`:''}</span>
+      </div>`;
+  }
+  if(it.kind==='mobility'){
+    return `<div class="pl-item done" style="--pc2:#5f9e8f">
+      <div class="pi" data-act="histday" data-arg="mobility:${p.id}"><b>🧘 ${esc(p.name||'Mobilidade')}</b></div>
+      </div>`;
+  }
+  return `<div class="pl-item done" style="--pc2:var(--accent)">
+    <div class="pi" data-act="histday" data-arg="gym:${p.id}"><b>🏋️ ${esc(p.name||'Treino')}</b></div>
+    </div>`;
+}
+// detalhe (somente leitura) de um dia passado — mostra o que realmente aconteceu,
+// incluindo trocas de exercício e conjugações feitas "só naquele dia"; edição/exclusão
+// desse registro continua sendo feita pela aba Histórico, que não foi alterada
+window.histDayDetail=arg=>{
+  const [kind,id]=String(arg).split(':');
+  let nome='Treino', detail='', extra='';
+  try{
+    if(kind==='run'){
+      const r=runs().find(x=>x.id===id);
+      if(r){
+        const t=rType(r.type);
+        nome=t[2]+' '+t[1]+(r.km?' de '+r.km.toFixed(2)+' km':'');
+        detail=`<div class="ct2"><span>Distância</span><b>${r.km.toFixed(2)} km</b></div>
+          <div class="ct2"><span>Tempo</span><b>${fmtDur(r.sec)}</b></div>
+          <div class="ct2"><span>Pace médio</span><b>${fmtPace(paceOf(r.km,r.sec))}/km</b></div>`;
+        extra=structSummary(r);
+      }
+    }else if(kind==='mobility'){
+      const m=(S.mobility||[]).find(x=>x.id===id);
+      if(m){
+        nome='🧘 '+(m.name||'Mobilidade');
+        detail=`<div class="ct2"><span>Duração</span><b>${fmtDur(m.sec)}</b></div>
+          <div class="ct2"><span>Exercícios feitos</span><b>${m.exercises.length}</b></div>`;
+      }
+    }else{
+      const s=(S.history||[]).find(x=>x.id===id);
+      if(s){
+        nome='🏋️ '+(s.name||'Treino');
+        const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
+          b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
+        detail=`<div class="ct2"><span>Duração</span><b>${s.dur?s.dur+' min':'—'}</b></div>
+          <div class="ct2"><span>Exercícios</span><b>${s.exercises.length}</b></div>
+          <div class="ct2"><span>Volume total</span><b>${Math.round(vol)} kg</b></div>`;
+        const trocados=s.exercises.filter(e=>e.swapped).map(e=>e.name);
+        const grupos=supersetSummary(s.exercises).filter(g=>g.names.length>1);
+        if(trocados.length||grupos.length){
+          extra=`<div style="background:rgba(91,141,239,.1);border:1px solid rgba(91,141,239,.35);
+            border-radius:10px;padding:11px 12px;font-size:12px;color:var(--txt);line-height:1.6;margin-top:12px">
+            ${trocados.length?`<div><b style="color:#5b8def">TROCADO</b> ${trocados.map(esc).join(', ')}</div>`:''}
+            ${grupos.map(g=>`<div><b style="color:#5b8def">CONJUGADO</b> ${g.names.map(esc).join(' + ')}</div>`).join('')}
+          </div>`;
+        }
+      }
+    }
+  }catch(e){}
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2 style="margin-bottom:2px">${esc(nome)}</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin-bottom:14px">✓ treino concluído</div>
+      ${detail?`<div class="calc-tot">${detail}</div>${extra}`
+        :'<div class="empty" style="padding:14px 6px">Registro não encontrado (pode ter sido excluído do histórico).</div>'}
+      <div class="row" style="margin-top:18px">
+        <button class="btn-ghost" onclick="closeM()">Fechar</button>
+      </div>
+    </div></div>`;
+};
+
 /* --- item de um plano no calendário (qualquer tipo) --- */
 function planItemHTML(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
@@ -2719,16 +2823,18 @@ function planItemHTML(p){
         ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
       ${delBtn}</div>`;
   }
-  // gym
+  // gym — só o nome do treino aqui (sem observação), pedido explícito do usuário: o mini
+  // calendário da aba Plano fica poluído com anotações longas; a observação continua
+  // disponível ao abrir o plano para editar
   return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
     style="--pc2:var(--accent)" ${act}>
-    <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b>
-      ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+    <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b></div>
     ${delBtn}</div>`;
 }
 
 /* --- PLANO (mês) — todos os tipos de treino juntos --- */
 function planCal(y,mo){
+  purgeStalePlans();
   const first=new Date(y,mo,1);
   const todayK=dayKey(Date.now());
   let h=`<div class="cal-nav">
@@ -2793,13 +2899,18 @@ function planCal(y,mo){
       const dt=new Date(ws+i*86400000);
       const k=dayKey(dt.getTime());
       const inMonth=dt.getMonth()===mo;
-      const ps=plansOn(k);
       h+=`<div class="pl-day ${k===todayK?'today':''}" style="${inMonth?'':'opacity:.35'}">
         <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
         <div class="pl-slot">`;
-      ps.forEach(p=>{h+=planItemHTML(p);});
-      h+=`<button class="pl-add" onclick="planPickKind(${dt.getTime()})">+ planejar</button>
-        </div></div>`;
+      if(k<todayK){
+        // dia passado: a aba Plano vira histórico puro aqui — mostra o que foi
+        // realmente feito (via S.history/S.mobility/runs), não o que estava planejado
+        historyItemsOn(k).forEach(it=>{h+=historyItemHTML(it);});
+      }else{
+        plansOn(k).forEach(p=>{h+=planItemHTML(p);});
+        h+=`<button class="pl-add" onclick="planPickKind(${dt.getTime()})">+ planejar</button>`;
+      }
+      h+=`</div></div>`;
     }
     h+='</div></div>';
   });
@@ -3206,6 +3317,7 @@ function drawMobPlanForm(){
   let h=`<div class="modal" onclick="if(event.target===this)closePF()">
     <div class="modal-in">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="hdr-back" onclick="closePF()" title="Voltar">‹</button>
         <h2 style="flex:1;margin:0">${PF.id?'Editar':'Planejar'} mobilidade</h2>
         ${PF.id?`<button class="btn-ghost btn-sm" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35);flex:none" onclick="delPlanNow('${PF.id}');return false;">🗑 Excluir</button>`:''}
       </div>
@@ -3231,6 +3343,7 @@ function drawGymPlanForm(){
   let h=`<div class="modal" onclick="if(event.target===this)closePF()">
     <div class="modal-in">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="hdr-back" onclick="closePF()" title="Voltar">‹</button>
         <h2 style="flex:1;margin:0">${PF.id?'Editar':'Planejar'} musculação</h2>
         ${PF.id?`<button class="btn-ghost btn-sm" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35);flex:none" data-act="delplan" data-arg="${PF.id}" onclick="delPlanNow('${PF.id}');return false;">🗑 Excluir</button>`:''}
       </div>
@@ -3315,6 +3428,7 @@ function drawPlanForm(){
   let h=`<div class="modal" onclick="if(event.target===this)closePF()">
     <div class="modal-in">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="hdr-back" onclick="closePF()" title="Voltar">‹</button>
         <h2 style="flex:1;margin:0">${PF.id?'Editar':'Planejar'} corrida</h2>
         ${PF.id?`<button class="btn-ghost btn-sm" style="color:#ff5a5a;border:1px solid rgba(255,90,90,.35);flex:none" data-act="delplan" data-arg="${PF.id}" onclick="delPlanNow('${PF.id}');return false;">🗑 Excluir</button>
         <button class="btn-ghost btn-sm" style="color:var(--accent2);border:1px solid rgba(61,220,151,.35);flex:none" onclick="pfDone()">✓ Feito</button>`:''}
@@ -4679,6 +4793,7 @@ window.finish=async()=>{
   const keptIdx=new Set(kept.map(x=>x.idx));
   const ex=kept.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
     link:n>0&&!!x.e.link&&keptIdx.has(x.idx-1),
+    swapped:!!x.e.swapped,
     sets:x.sets}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
@@ -5474,7 +5589,9 @@ window.mdInfo=()=>{
 /* ---------- BACKUP ---------- */
 function bkName(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
-  return `treinos-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.json`;
+  // nome identifica que o arquivo foi gerado pelo app (não confundir com o relatório
+  // para IA, que é o único que foge desse padrão — pedido explícito do usuário)
+  return `backup-app-treinos-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.json`;
 }
 window.exportData=()=>{
   const nS=S.history.length, nR=runs().length, nM=S.mobility.length;

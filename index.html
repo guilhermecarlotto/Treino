@@ -5562,7 +5562,10 @@ window.importPlanOpen=()=>{
         arquivo, os planos <b style="color:var(--txt)">ainda pendentes</b> que nao vieram nesta
         importacao sao removidos — ou seja, o arquivo passa a valer como o planejamento oficial dali
         pra frente. Se reimportar um dia repetido, aquele plano e apenas atualizado (a menos que ja
-        tenha sido concluido, ai ele fica como esta).</p>
+        tenha sido concluido, ai ele fica como esta).<br><br>
+        Se o arquivo trouxer treinos de musculacao criados no planejador, eles sao adicionados
+        na aba <b style="color:var(--txt)">Treinos</b> — uma vez so por treino, mesmo que ele
+        esteja planejado em varios dias.</p>
       <div class="stats" style="margin:0 0 14px">
         <div class="stat"><b>${plans().length}</b><span>planejados hoje</span></div>
         <div class="stat"><b>${nPend}</b><span>futuros</span></div>
@@ -5585,6 +5588,24 @@ window.doImportPlan=inp=>{
     const list=Array.isArray(d)?d:(Array.isArray(d&&d.plans)?d.plans:null);
     if(!list)return toast('Nao parece um arquivo de planejamento de corrida');
     if(!Array.isArray(S.plans))S.plans=[];
+    if(!Array.isArray(S.workouts))S.workouts=[];
+    // treinos de musculacao cadastrados no planejador do PC. Vem UMA vez so no arquivo,
+    // mesmo que o mesmo treino esteja em varios dias do planejamento: por isso ele aparece
+    // uma vez so aqui na aba Treinos, e cada dia planejado so aponta pra ele pelo `wid`.
+    const wOps=[]; // {mode:'add'|'update', w}
+    (Array.isArray(d&&d.workouts)?d.workouts:[]).forEach(w=>{
+      if(!w||!w.id)return;
+      const name=String(w.name||'').trim();
+      const exs=(Array.isArray(w.exercises)?w.exercises:[])
+        .map(e=>({name:String((e&&e.name)||'').trim(),sets:(e&&e.sets)||'',
+          reps:(e&&e.reps)||'',note:String((e&&e.note)||'').trim(),link:!!(e&&e.link)}))
+        .filter(e=>e.name);
+      if(!name||!exs.length)return;
+      if(exs.length)exs[0].link=false;
+      const cur=S.workouts.find(x=>String(x.id)===String(w.id));
+      if(cur)wOps.push({mode:'update',id:cur.id,name,exercises:exs});
+      else wOps.push({mode:'add',id:String(w.id),name,exercises:exs});
+    });
     const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level','rwMode','rw','rwReps'];
     const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
     const KEEP_MOB=['mode','wid','regions','tags','exercises'];
@@ -5639,14 +5660,27 @@ window.doImportPlan=inp=>{
     const updated=ops.filter(o=>o.mode==='update').length;
     const skipped=ops.filter(o=>o.mode==='skip').length;
     const invalid=ops.filter(o=>o.mode==='invalid').length;
-    if(!added&&!updated){
+    const wAdd=wOps.filter(o=>o.mode==='add').length;
+    const wUpd=wOps.filter(o=>o.mode==='update').length;
+    if(!added&&!updated&&!wAdd&&!wUpd){
       return toast(skipped?`Nada novo — ${skipped} ja concluido(s)`:'Nenhum plano valido no arquivo');
     }
-    const det=`Adicionados: ${added}\nAtualizados: ${updated}`+
+    const det=(wAdd||wUpd?`Treinos novos na aba Treinos: ${wAdd}`+
+        (wUpd?`\nTreinos atualizados: ${wUpd}`:'')+`\n\n`:'')+
+      `Adicionados: ${added}\nAtualizados: ${updated}`+
       (stale.length?`\nRemovidos (fora do novo planejamento): ${stale.length}`:'')+
       `\nIgnorados (ja concluidos): ${skipped}`+
       (invalid?`\nInvalidos ignorados: ${invalid}`:'');
     if(!await ask('Importar planejamento?',det,'Importar',false))return; // cancelado: nada foi tocado
+    // treinos primeiro, pra que os planos que apontam pra eles (wid) ja encontrem o treino
+    wOps.forEach(o=>{
+      if(o.mode==='add'){
+        S.workouts.push({id:o.id,name:o.name,exercises:o.exercises,muscles:[],fromPC:true});
+      }else{
+        const w=S.workouts.find(x=>x.id===o.id);
+        if(w){w.name=o.name;w.exercises=o.exercises;}
+      }
+    });
     if(stale.length){
       const staleIds=new Set(stale.map(p=>p.id));
       S.plans=S.plans.filter(p=>!staleIds.has(p.id));

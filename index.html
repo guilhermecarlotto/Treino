@@ -853,6 +853,32 @@ function ringsHTML(){
     </div></div>`;
 }
 
+/* ---------- DESFAZER ---------- */
+// pilha de alterações (não é só 1 nível, ao contrário do planejador): cada pushUndo
+// empilha uma foto do estado antes da mudança, e "Desfazer última alteração" tira a
+// última foto e restaura — pode ser usado várias vezes seguidas pra voltar várias
+// alterações, uma de cada vez (como um Ctrl+Z de editor de texto, com histórico).
+// Fica só na memória (não é salvo no localStorage): fechar/recarregar o app zera a pilha.
+let undoStack=[];
+const UNDO_MAX=25;
+function pushUndo(label){
+  undoStack.push({label,
+    workouts:JSON.parse(JSON.stringify(S.workouts||[])),
+    history:JSON.parse(JSON.stringify(S.history||[])),
+    runs:JSON.parse(JSON.stringify(S.runs||[])),
+    plans:JSON.parse(JSON.stringify(S.plans||[])),
+    mobility:JSON.parse(JSON.stringify(S.mobility||[])),
+    goals:JSON.parse(JSON.stringify(S.goals||{}))});
+  if(undoStack.length>UNDO_MAX)undoStack.shift();
+}
+window.undoLast=async()=>{
+  if(!undoStack.length)return;
+  const snap=undoStack.pop();
+  S.workouts=snap.workouts;S.history=snap.history;S.runs=snap.runs;
+  S.plans=snap.plans;S.mobility=snap.mobility;S.goals=snap.goals;
+  await save();closeM();render();toast('Desfeito: '+snap.label);
+};
+
 /* ---------- CONFIGURAÇÕES ---------- */
 window.openCfg=()=>{view='cfg';render()};
 window.setGoal=async(k,v)=>{
@@ -867,7 +893,13 @@ function config(){
   const act=activeW(), arc=archivedW();
   const notifN=notifications().length;
   let h='';
-  h+='<div class="sec-lbl" style="margin-top:4px">Aparência</div>';
+  h+='<div class="sec-lbl" style="margin-top:4px">Desfazer</div>';
+  h+=`<button class="mcard" ${undoStack.length?'':'disabled style="opacity:.45"'} onclick="undoLast()">
+    <span class="mi">↶</span><span class="mt">Desfazer última alteração${undoStack.length?
+      `<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">${esc(undoStack[undoStack.length-1].label)}</div>`
+      :'<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Nada para desfazer</div>'}</span>
+    ${undoStack.length?`<span class="mv">${undoStack.length}</span>`:''}</button>`;
+  h+='<div class="sec-lbl">Aparência</div>';
   h+=`<div class="mcard" style="cursor:default">
     <span class="mi">${theme==='light'?'☀️':'🌙'}</span>
     <span class="mt">Modo claro<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Troca o visual do app para um tema claro</div></span>
@@ -1919,6 +1951,7 @@ window.saveRun=async()=>{
     else if(RF.type==='rodagem'&&RF.rwMode==='on'){rec.rwMode='on';rec.rw=RF.rw;rec.rwReps=RF.rwReps;}
     rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
   }
+  pushUndo(RF.id?'editar corrida':'registrar corrida');
   S.runs=runs().filter(x=>x.id!==rec.id);
   S.runs.push(rec);
   if(!RF.id){
@@ -1929,6 +1962,7 @@ window.saveRun=async()=>{
 };
 window.delRun=async id=>{
   if(!await ask('Excluir registro?','Este treino de corrida será removido do histórico.','Excluir',true))return;
+  pushUndo('excluir corrida');
   S.runs=runs().filter(x=>x.id!==id);
   await save();RF=null;closeM();render();toast('Registro excluído');
 };
@@ -2608,6 +2642,7 @@ async function delPlanNow(id){
   const ok=await ask('Excluir do planejamento?',nome,'Excluir',true);
   dbg('confirmacao='+ok);
   if(!ok)return;
+  pushUndo('excluir plano do dia');
   S.plans=S.plans.filter(x=>x.id!==id);
   PF=null;
   // se era um esporádico nunca executado, remove o treino também
@@ -2710,9 +2745,11 @@ let plDel=false;
 // usuário, então não pede confirmação — é consequência automática de virar passado)
 function purgeStalePlans(){
   const todayK=dayKey(Date.now());
-  const before=(S.plans||[]).length;
-  S.plans=(S.plans||[]).filter(p=>p.doneId||dayKey(p.date)>=todayK);
-  if(S.plans.length!==before)save();
+  const kept=(S.plans||[]).filter(p=>p.doneId||dayKey(p.date)>=todayK);
+  if(kept.length===(S.plans||[]).length)return;
+  pushUndo('remover planos passados não cumpridos');
+  S.plans=kept;
+  save();
 }
 // junta tudo que foi realmente feito num dia passado, direto dos registros reais
 // (histórico de musculação, corridas, mobilidade) — não do plano, que pode nem
@@ -2807,25 +2844,24 @@ function planItemHTML(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
   const delBtn=p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
     onclick="delPlanNow('${p.id}');return false;">✕</button>`;
+  // só o nome (e, na corrida, a distância) aqui — pedido explícito do usuário: o mini
+  // calendário da aba Plano fica poluído com anotações longas; a observação continua
+  // disponível ao abrir o plano para editar. Vale para os 3 tipos.
   if(p.kind==='run'){
     const t=rType(p.type);
     return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
       style="--pc2:${t[3]}" ${act}>
-      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>${t[2]} ${t[1]}</b>
-        ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>${t[2]} ${t[1]}</b></div>
       <span class="pk">${p.km?p.km+' km':''}${p.targetSec?`<br>${fmtPace(paceOf(p.km,p.targetSec))}/km`:''}</span>
       ${delBtn}</div>`;
   }
   if(p.kind==='mobility'){
     return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
       style="--pc2:#5f9e8f" ${act}>
-      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🧘 ${esc(mobPlanLabel(p))}</b>
-        ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
+      <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🧘 ${esc(mobPlanLabel(p))}</b></div>
       ${delBtn}</div>`;
   }
-  // gym — só o nome do treino aqui (sem observação), pedido explícito do usuário: o mini
-  // calendário da aba Plano fica poluído com anotações longas; a observação continua
-  // disponível ao abrir o plano para editar
+  // gym
   return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
     style="--pc2:var(--accent)" ${act}>
     <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b></div>
@@ -3095,6 +3131,7 @@ window.planUndoAsk=async p=>{
       `o registro já salvo no histórico não é apagado.`;
   const ok=await ask('Desfazer treino feito?',texto,'Desfazer',true);
   if(!ok)return;
+  pushUndo('desfazer marcação de treino feito');
   if(isRunKind&&p.doneId){
     const idx=S.runs.findIndex(x=>x.id===p.doneId);
     if(idx>=0)S.runs.splice(idx,1);
@@ -3238,6 +3275,7 @@ window.savePlan=async()=>{
       const targetSec=pfSecs();
       if(targetSec>0)rec.targetSec=targetSec;
     }
+    pushUndo(PF.id?'editar plano de corrida':'planejar corrida');
     S.plans=plans().filter(x=>x.id!==rec.id);
     S.plans.push(rec);
   }else if(PF.kind==='gym'){
@@ -3253,11 +3291,13 @@ window.savePlan=async()=>{
       if(!exs.length)return toast('Adicione pelo menos um exercício');
       rec.exercises=exs.map(e=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||''}));
     }
+    pushUndo(PF.id?'editar plano de musculação':'planejar musculação');
     S.plans=plans().filter(x=>x.id!==rec.id);
     S.plans.push(rec);
   }else if(PF.kind==='mobility'){
     if(!PF.wid)return toast('Escolha um treino de mobilidade');
     const rec={id:PF.id||uid(),kind:'mobility',date:PF.date,wid:PF.wid,note:(PF.note||'').trim()};
+    pushUndo(PF.id?'editar plano de mobilidade':'planejar mobilidade');
     S.plans=plans().filter(x=>x.id!==rec.id);
     S.plans.push(rec);
   }
@@ -3329,8 +3369,12 @@ function drawMobPlanForm(){
           ||'<div class="empty" style="padding:10px">Nenhum treino de mobilidade ativo.<br>Crie um em Treinos primeiro.</div>'}
         </div></div>
       <div class="field"><label>Instruções gerais</label>
-        <input value="${esc(PF.note)}" placeholder="Ex: focar na respiração" oninput="PF.note=this.value"></div>
-      <div class="row">
+        <input value="${esc(PF.note)}" placeholder="Ex: focar na respiração" oninput="PF.note=this.value"></div>`;
+  if(PF.id&&PF.wid&&dayKey(PF.date)===dayKey(Date.now())){
+    h+=`<button class="btn-ghost btn-sm" style="width:100%;color:var(--accent2);border:1px solid rgba(61,220,151,.35);margin-bottom:10px"
+      onclick="pfStartMob()">▶ Iniciar este treino agora</button>`;
+  }
+  h+=`<div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
         <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
     </div></div>`;
@@ -3413,8 +3457,14 @@ function drawGymPlanForm(){
     h+=`<button class="btn-ghost btn-sm" style="width:100%;margin-bottom:12px" onclick="pfExAdd()">+ exercício</button>`;
   }
   h+=`<div class="field"><label>Instruções gerais</label>
-        <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>
-      <div class="row">
+        <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>`;
+  // igual ao "✓ Feito" da corrida: em vez de só editar o alvo, dá pra ir direto pra sessão de
+  // verdade — só faz sentido pra um plano de treino salvo já existente, marcado pra hoje
+  if(PF.id&&PF.mode==='workout'&&PF.wid&&dayKey(PF.date)===dayKey(Date.now())){
+    h+=`<button class="btn-ghost btn-sm" style="width:100%;color:var(--accent2);border:1px solid rgba(61,220,151,.35);margin-bottom:10px"
+      onclick="pfStartGym()">▶ Iniciar este treino agora</button>`;
+  }
+  h+=`<div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
         <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
     </div></div>`;
@@ -3683,6 +3733,24 @@ window.pfDone=()=>{
   syncShots();
   drawRunForm();
 };
+// "▶ Iniciar este treino agora" (musculação): sai do formulário de plano e abre a
+// sessão de verdade direto, o mesmo caminho de tocar no treino na aba Treinos —
+// já chega vinculada a este plano (matchPlan não precisa adivinhar)
+window.pfStartGym=()=>{
+  if(!PF.wid)return;
+  const plan=PF.id?plans().find(x=>x.id===PF.id):null;
+  const wid=PF.wid;
+  PF=null;closeM();
+  openW(wid,plan);
+};
+// mobilidade não tem planId explícito na sessão (finishMob vincula por matchPlan
+// olhando data+wid), então só precisa abrir o treino mesmo
+window.pfStartMob=()=>{
+  if(!PF.wid)return;
+  const wid=PF.wid;
+  PF=null;closeM();
+  openMobW(wid);
+};
 
 /* --- templates de semana --- */
 window.tplPick=ws=>{
@@ -3701,6 +3769,7 @@ window.tplPick=ws=>{
 };
 window.applyTpl=async(ws,key)=>{
   const t=WEEK_TPL.find(x=>x[0]===key); if(!t)return;
+  pushUndo('preencher semana com modelo');
   // remove planos de corrida não executados desta semana
   S.plans=plans().filter(p=>
     !(p.kind==='run'&&p.date>=ws&&p.date<ws+7*86400000&&!p.doneId));
@@ -3833,6 +3902,7 @@ window.mobWMenu=id=>{
 };
 window.arcW=async(id,v)=>{
   const w=S.workouts.find(x=>x.id===id);
+  pushUndo(v?'arquivar treino':'restaurar treino');
   w.archived=v;await save();closeM();render();
   toast(v?'Treino arquivado':'Treino restaurado');
 };
@@ -3843,6 +3913,7 @@ window.dupW=async id=>{
       ?{name:e}:{name:e.name,sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:!!e.link})};
   if(w.color)nw.color=w.color;
   if(w.muscles&&w.muscles.length)nw.muscles=w.muscles.slice();
+  pushUndo('duplicar treino');
   S.workouts.push(nw);
   await save();render();toast('Treino duplicado');
 };
@@ -3853,6 +3924,7 @@ window.dupMobW=async id=>{
   if(w.color)nw.color=w.color;
   if(w.regions&&w.regions.length)nw.regions=w.regions.slice();
   if(w.tags&&w.tags.length)nw.tags=w.tags.slice();
+  pushUndo('duplicar treino de mobilidade');
   S.workouts.push(nw);
   await save();render();toast('Treino duplicado');
 };
@@ -3913,7 +3985,9 @@ window.resetApp=async()=>{
     `e gere um em "Backup dos dados" antes de continuar.`,
     'Resetar tudo',true))return;
   if(!await ask('Tem certeza mesmo?',
-    'Não existe como recuperar os dados depois disso.','Sim, apagar tudo',true))return;
+    'Dá pra reverter usando "Desfazer última alteração" em Configurações, mas só nesta mesma '+
+    'sessão do app — depois de fechar ou recarregar, não tem mais como recuperar.','Sim, apagar tudo',true))return;
+  pushUndo('resetar o aplicativo');
   S={workouts:[],history:[],runs:[],plans:[],mobility:[]};
   try{localStorage.removeItem(LS_KEY);}catch(e){}
   try{localStorage.removeItem('lastBackupAt');}catch(e){}
@@ -4110,6 +4184,7 @@ window.saveW=async id=>{
   const adhoc=!id&&!!window.__adhoc;
   if(!name)return toast('Dê um nome ao treino');
   if(!exs.length)return toast('Adicione ao menos 1 exercício');
+  pushUndo(id?'editar treino':'cadastrar treino');
   if(id){const w=S.workouts.find(x=>x.id===id);w.name=name;w.exercises=exs;w.muscles=window.__muscles.slice();}
   else{
     const nw={id:uid(),name,exercises:exs,muscles:window.__muscles.slice()};
@@ -4223,6 +4298,7 @@ window.saveMobW=async id=>{
   const adhoc=!id&&!!window.__adhocM;
   if(!name)return toast('Dê um nome ao treino');
   if(!exs.length)return toast('Adicione ao menos 1 exercício');
+  pushUndo(id?'editar treino de mobilidade':'cadastrar treino de mobilidade');
   if(id){const w=S.workouts.find(x=>x.id===id);w.name=name;w.exercises=exs;
     w.regions=window.__regions.slice();w.tags=window.__tags.slice();}
   else{
@@ -4240,6 +4316,7 @@ window.delW=async id=>{
   const msg=n?`As ${n} sessão(ões) permanecem no histórico, mas o treino sai dos relatórios por treino.`
     :'Este treino será removido.';
   if(!await ask(`Excluir "${w.name}"?`,msg,'Excluir',true))return;
+  pushUndo(`excluir treino "${w.name}"`);
   S.workouts=S.workouts.filter(x=>x.id!==id);
   await save();closeM();
   if(view==='arc'&&!archivedW().length)view='cfg';
@@ -4354,6 +4431,7 @@ async function saveOrderInto(target,liveList){
   // segurança: exercícios do treino que não estavam nesta sessão vão para o fim
   Object.keys(byName).forEach(k=>next.push(byName[k]));
   if(next.length)next[0].link=false;
+  pushUndo('salvar nova ordem no treino');
   target.exercises=next;
   await save();
 }
@@ -4479,6 +4557,7 @@ window.finishMob=async()=>{
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhum exercício foi marcado como feito.','Sair',true))return;
     clearInterval(tickM);await cleanupAdhoc();view='mob';render();return;}
   if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
+  pushUndo('concluir treino de mobilidade');
   const sec=Math.floor((Date.now()-t0M)/1000);
   const sid=uid();
   const wDone=S.workouts.find(x=>x.id===liveM.wid);
@@ -4798,6 +4877,7 @@ window.finish=async()=>{
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
   if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
+  pushUndo('concluir treino de musculação');
   const dur=Math.floor((Date.now()-t0)/60000);
   const sid=uid();
   const wDone=S.workouts.find(x=>x.id===live.wid);
@@ -5003,10 +5083,12 @@ function hist(){
 }
 window.delH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
+  pushUndo('excluir sessão de musculação');
   S.history=S.history.filter(x=>x.id!==id);await save();render();
 };
 window.delMobH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
+  pushUndo('excluir sessão de mobilidade');
   S.mobility=S.mobility.filter(x=>x.id!==id);await save();render();
 };
 /* ---------- EDITAR SESSÃO DO HISTÓRICO (data + exercícios + séries) ---------- */
@@ -5091,6 +5173,7 @@ window.saveEditHist=async()=>{
   const exs=keptE.map((x,n)=>({name:(x.e.name||'').trim()||'Exercício',bw:!!x.e.bw,
     link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),sets:x.sets}));
   if(!exs.length)return toast('Mantenha ao menos uma série preenchida');
+  pushUndo('editar sessão do histórico');
   s.date=window.__ehDate;
   s.exercises=exs;
   await save();closeM();render();toast('Treino atualizado');
@@ -5656,6 +5739,7 @@ window.doImport=inp=>{
       `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade\n\n`+
       `Os dados atuais serão substituídos.`;
     if(!await ask(`Restaurar backup de ${when}?`,det,'Restaurar',true))return;
+    pushUndo('restaurar backup');
     S={workouts:d.workouts,history:d.history,goals:d.goals||S.goals,
        runs:Array.isArray(d.runs)?d.runs:[],
        plans:Array.isArray(d.plans)?d.plans:[],
@@ -5792,6 +5876,7 @@ window.doImportPlan=inp=>{
       `\nIgnorados (ja concluidos): ${skipped}`+
       (invalid?`\nInvalidos ignorados: ${invalid}`:'');
     if(!await ask('Importar planejamento?',det,'Importar',false))return; // cancelado: nada foi tocado
+    pushUndo('importar planejamento do PC');
     // treinos primeiro, pra que os planos que apontam pra eles (wid) ja encontrem o treino
     wOps.forEach(o=>{
       if(o.mode==='add'){

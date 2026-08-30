@@ -5563,9 +5563,11 @@ window.importPlanOpen=()=>{
         importacao sao removidos — ou seja, o arquivo passa a valer como o planejamento oficial dali
         pra frente. Se reimportar um dia repetido, aquele plano e apenas atualizado (a menos que ja
         tenha sido concluido, ai ele fica como esta).<br><br>
-        Se o arquivo trouxer treinos de musculacao criados no planejador, eles sao adicionados
+        Se o arquivo trouxer treinos de musculacao cadastrados no planejador, eles sao adicionados
         na aba <b style="color:var(--txt)">Treinos</b> — uma vez so por treino, mesmo que ele
-        esteja planejado em varios dias.</p>
+        esteja planejado em varios dias, e mesmo que ainda nao esteja em nenhum dia. Um treino
+        arquivado no planejador chega arquivado aqui tambem (e vice-versa, na proxima vez que
+        voce exportar um backup daqui pro planejador).</p>
       <div class="stats" style="margin:0 0 14px">
         <div class="stat"><b>${plans().length}</b><span>planejados hoje</span></div>
         <div class="stat"><b>${nPend}</b><span>futuros</span></div>
@@ -5602,9 +5604,10 @@ window.doImportPlan=inp=>{
         .filter(e=>e.name);
       if(!name||!exs.length)return;
       if(exs.length)exs[0].link=false;
+      const archived=!!w.archived;
       const cur=S.workouts.find(x=>String(x.id)===String(w.id));
-      if(cur)wOps.push({mode:'update',id:cur.id,name,exercises:exs});
-      else wOps.push({mode:'add',id:String(w.id),name,exercises:exs});
+      if(cur)wOps.push({mode:'update',id:cur.id,name,exercises:exs,archived});
+      else wOps.push({mode:'add',id:String(w.id),name,exercises:exs,archived});
     });
     const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level','rwMode','rw','rwReps'];
     const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
@@ -5675,10 +5678,11 @@ window.doImportPlan=inp=>{
     // treinos primeiro, pra que os planos que apontam pra eles (wid) ja encontrem o treino
     wOps.forEach(o=>{
       if(o.mode==='add'){
-        S.workouts.push({id:o.id,name:o.name,exercises:o.exercises,muscles:[],fromPC:true});
+        S.workouts.push({id:o.id,name:o.name,exercises:o.exercises,muscles:[],archived:o.archived,fromPC:true});
       }else{
         const w=S.workouts.find(x=>x.id===o.id);
-        if(w){w.name=o.name;w.exercises=o.exercises;}
+        // sincroniza tambem o estado arquivado (aposentado/reativado no planejador do PC)
+        if(w){w.name=o.name;w.exercises=o.exercises;w.archived=o.archived;}
       }
     });
     if(stale.length){

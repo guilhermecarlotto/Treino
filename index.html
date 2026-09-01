@@ -532,6 +532,9 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .pl-item .pl-x:active{background:rgba(255,90,90,.15)}
 .pl-item.done{opacity:.62}
 .pl-item.done .pi b::after{content:' ✓';color:var(--accent2)}
+.pl-item.missed{opacity:.62}
+.pl-item.missed .pi b{text-decoration:line-through;text-decoration-color:#ff5a5a}
+.pl-item.missed .pi b::after{content:' ✕';color:#ff5a5a;text-decoration:none}
 .delmode{box-shadow:inset 0 0 0 1.5px rgba(255,90,90,.6);cursor:pointer}
 .delmode::after{content:'toque para excluir';position:absolute;right:8px;bottom:2px;
   font-size:8px;color:#ff5a5a;font-weight:700;pointer-events:none;z-index:2}
@@ -2626,10 +2629,26 @@ function handleAct(ev){
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
 }
 document.addEventListener('click',handleAct,true);
+// guarda onde o dedo tocou pra distinguir toque de arrasto (ver abaixo)
+let __tapX=0,__tapY=0;
+document.addEventListener('touchstart',function(ev){
+  const t=ev.touches&&ev.touches[0];
+  if(t){__tapX=t.clientX;__tapY=t.clientY;}
+},{passive:true,capture:true});
 document.addEventListener('touchend',function(ev){
   const t=ev.target;
   const el=t&&t.closest?t.closest('[data-act]'):null;
-  if(el){ ev.preventDefault(); handleAct(ev); }
+  if(!el)return;
+  // touchend sempre reporta o elemento onde o dedo POUSOU no touchstart, mesmo que o
+  // usuário tenha arrastado (rolado a lista) até soltar em outro lugar — sem checar o
+  // deslocamento aqui, um arrasto pra rolar a aba Plano abria o item onde o dedo tocou
+  // primeiro, como se tivesse sido um toque nele
+  const ct=ev.changedTouches&&ev.changedTouches[0];
+  if(ct){
+    const dx=Math.abs(ct.clientX-__tapX), dy=Math.abs(ct.clientY-__tapY);
+    if(dx>10||dy>10)return;
+  }
+  ev.preventDefault(); handleAct(ev);
 },{passive:false,capture:true});
 
 // exclusão direta, sem depender de PF nem de modal aberto
@@ -2745,22 +2764,14 @@ function planScreen(){
 }
 let plDel=false;
 
-// remove do plano os treinos passados que nunca foram feitos: de ontem pra trás
-// a aba Plano passou a ser histórico puro, então planejamento não cumprido não
-// faz mais sentido continuar aparecendo ali (não é uma exclusão pedida pelo
-// usuário, então não pede confirmação — é consequência automática de virar passado)
-function purgeStalePlans(){
-  const todayK=dayKey(Date.now());
-  const kept=(S.plans||[]).filter(p=>p.doneId||dayKey(p.date)>=todayK);
-  if(kept.length===(S.plans||[]).length)return;
-  pushUndo('remover planos passados não cumpridos');
-  S.plans=kept;
-  save();
-}
+// um plano de dia passado sem doneId nunca foi cumprido — fica visível com risco e
+// um x vermelho (ver .missed) em vez de sumir sozinho; só sai da aba Plano se o
+// usuário excluir manualmente
+function isPlanMissed(p){return !p.doneId&&dayKey(p.date)<dayKey(Date.now());}
 // junta tudo que foi realmente feito num dia passado, direto dos registros reais
-// (histórico de musculação, corridas, mobilidade) — não do plano, que pode nem
-// existir mais (foi cumprido e o plano permanece só como referência, ou nunca foi
-// cumprido e já foi removido por purgeStalePlans)
+// (histórico de musculação, corridas, mobilidade) — o plano original (se existiu e
+// foi cumprido) só serve de referência pra aderência; quem não foi cumprido aparece
+// à parte, riscado (ver plansOn(k).filter(p=>!p.doneId) em planCal)
 function historyItemsOn(k){
   const items=[];
   (S.history||[]).forEach(s=>{if(dayKey(s.date)===k)items.push({kind:'gym',d:s});});
@@ -2931,25 +2942,28 @@ function planItemHTML(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
   const delBtn=p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
     onclick="delPlanNow('${p.id}');return false;">✕</button>`;
+  // "done" = check verde (foi cumprido); "missed" = x vermelho + risco (dia já passou
+  // e nunca foi cumprido, mas continua visível — não é mais removido automaticamente)
+  const st=p.doneId?'done':(isPlanMissed(p)?'missed':'');
   // só o nome (e, na corrida, a distância) aqui — pedido explícito do usuário: o mini
   // calendário da aba Plano fica poluído com anotações longas; a observação continua
   // disponível ao abrir o plano para editar. Vale para os 3 tipos.
   if(p.kind==='run'){
     const t=rType(p.type);
-    return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+    return `<div class="pl-item ${st} ${plDel&&!p.doneId?'delmode':''}"
       style="--pc2:${t[3]}" ${act}>
       <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>${t[2]} ${t[1]}</b></div>
       <span class="pk">${p.km?p.km+' km':''}${p.targetSec?`<br>${fmtPace(paceOf(p.km,p.targetSec))}/km`:''}</span>
       ${delBtn}</div>`;
   }
   if(p.kind==='mobility'){
-    return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+    return `<div class="pl-item ${st} ${plDel&&!p.doneId?'delmode':''}"
       style="--pc2:#5f9e8f" ${act}>
       <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🧘 ${esc(mobPlanLabel(p))}</b></div>
       ${delBtn}</div>`;
   }
   // gym
-  return `<div class="pl-item ${p.doneId?'done':''} ${plDel&&!p.doneId?'delmode':''}"
+  return `<div class="pl-item ${st} ${plDel&&!p.doneId?'delmode':''}"
     style="--pc2:var(--accent)" ${act}>
     <div class="pi" ${plDel?'':`data-act="editplan" data-arg="${p.id}"`}><b>🏋️ ${esc(gymPlanLabel(p))}</b></div>
     ${delBtn}</div>`;
@@ -2957,7 +2971,6 @@ function planItemHTML(p){
 
 /* --- PLANO (mês) — todos os tipos de treino juntos --- */
 function planCal(y,mo){
-  purgeStalePlans();
   const first=new Date(y,mo,1);
   const todayK=dayKey(Date.now());
   let h=`<div class="cal-nav">
@@ -3028,9 +3041,11 @@ function planCal(y,mo){
         <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
         <div class="pl-slot">`;
       if(k<todayK){
-        // dia passado: a aba Plano vira histórico puro aqui — mostra o que foi
-        // realmente feito (via S.history/S.mobility/runs), não o que estava planejado
+        // dia passado: mostra primeiro o que foi realmente feito (via S.history/
+        // S.mobility/runs, com check verde), e depois qualquer plano daquele dia que
+        // nunca foi cumprido (risco + x vermelho) — esse não some mais sozinho
         historyItemsOn(k).forEach(it=>{h+=historyItemHTML(it);});
+        plansOn(k).filter(p=>!p.doneId).forEach(p=>{h+=planItemHTML(p);});
         h+=manualNoteSlotHTML(dt.getTime(),k);
       }else{
         plansOn(k).forEach(p=>{h+=planItemHTML(p);});

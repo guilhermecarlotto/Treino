@@ -576,7 +576,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 
 <script>
 const $=id=>document.getElementById(id);
-let S={workouts:[],history:[],runs:[],plans:[]}, view='home', cur=null, live=null, t0=null, tick=null;
+let S={workouts:[],history:[],runs:[],plans:[],manualNotes:[]}, view='home', cur=null, live=null, t0=null, tick=null;
 
 /* ---------- APARÊNCIA (modo claro/escuro) ---------- */
 // preferência de exibição do dispositivo — de propósito FORA de S: não entra
@@ -678,6 +678,7 @@ async function load(){
   if(!Array.isArray(S.runs))S.runs=[];
   if(!Array.isArray(S.plans))S.plans=[];
   if(!Array.isArray(S.mobility))S.mobility=[];
+  if(!Array.isArray(S.manualNotes))S.manualNotes=[];
   if(!Array.isArray(S.exDict))S.exDict=[]; // nomes de exercício "aprendidos" (correção ortográfica)
   if(!S.goalsResetAt)S.goalsResetAt=0; // treinos feitos antes disso não contam mais nas metas
   // migra tipos removidos: easy -> regen, tempo -> limiar, race -> longao
@@ -793,7 +794,8 @@ function periodCount(kind){
   from=Math.max(from,S.goalsResetAt||0);
   return S.history.filter(h=>h.date>=from).length
     + runs().filter(r=>r.date>=from).length
-    + S.mobility.filter(m=>m.date>=from).length;
+    + S.mobility.filter(m=>m.date>=from).length
+    + (S.manualNotes||[]).filter(n=>n.check&&n.date>=from).length;
 }
 function streak(){
   // semanas consecutivas (contando de trás) em que a meta semanal foi batida
@@ -805,7 +807,8 @@ function streak(){
     const a=Math.max(ref.getTime(),S.goalsResetAt||0), b=ref.getTime()+7*86400000;
     const c=a>=b?0:S.history.filter(h=>h.date>=a&&h.date<b).length
       + runs().filter(r=>r.date>=a&&r.date<b).length
-      + S.mobility.filter(m=>m.date>=a&&m.date<b).length;
+      + S.mobility.filter(m=>m.date>=a&&m.date<b).length
+      + (S.manualNotes||[]).filter(n=>n.check&&n.date>=a&&n.date<b).length;
     if(i===0){ if(c>=g)s++; }        // semana atual só conta se já bateu
     else{ if(c>=g)s++; else break; }
     ref.setDate(ref.getDate()-7);
@@ -868,6 +871,7 @@ function pushUndo(label){
     runs:JSON.parse(JSON.stringify(S.runs||[])),
     plans:JSON.parse(JSON.stringify(S.plans||[])),
     mobility:JSON.parse(JSON.stringify(S.mobility||[])),
+    manualNotes:JSON.parse(JSON.stringify(S.manualNotes||[])),
     goals:JSON.parse(JSON.stringify(S.goals||{}))});
   if(undoStack.length>UNDO_MAX)undoStack.shift();
 }
@@ -875,7 +879,7 @@ window.undoLast=async()=>{
   if(!undoStack.length)return;
   const snap=undoStack.pop();
   S.workouts=snap.workouts;S.history=snap.history;S.runs=snap.runs;
-  S.plans=snap.plans;S.mobility=snap.mobility;S.goals=snap.goals;
+  S.plans=snap.plans;S.mobility=snap.mobility;S.manualNotes=snap.manualNotes||[];S.goals=snap.goals;
   await save();closeM();render();toast('Desfeito: '+snap.label);
 };
 
@@ -2616,6 +2620,8 @@ function handleAct(ev){
     else if(act==='editplan')planEdit(arg);
     else if(act==='histday')histDayDetail(arg);
     else if(act==='swapex')doSwapEx(window.__swapFiltered[parseInt(arg)]);
+    else if(act==='editnote')noteEditById(arg);
+    else if(act==='delnote')delManualNote(arg);
     else dbg('acao desconhecida: '+act);
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
 }
@@ -2839,6 +2845,87 @@ window.histDayDetail=arg=>{
     </div></div>`;
 };
 
+/* --- nota manual: disponível em dias passados e no dia atual (não em dias futuros).
+   Registra uma atividade física alternativa quando o treino planejado não foi feito
+   (ou um dia sem planejamento algum). O campo "check" marca que aquilo conta como
+   treino feito: soma nos contadores/metas da aba Treinos (periodCount/streak) e é
+   exportado no backup e, principalmente, no relatório para IA --- */
+const manualNotes=()=>S.manualNotes||[];
+function manualNoteOn(k){return manualNotes().find(n=>dayKey(n.date)===k);}
+function manualNoteSlotHTML(ts,k){
+  const n=manualNoteOn(k);
+  if(!n)return `<button class="pl-add" onclick="noteEdit(${ts})">+ nota manual</button>`;
+  return `<div class="pl-item ${n.check?'done':''}" style="--pc2:#d9a441">
+    <div class="pi" data-act="editnote" data-arg="${n.id}"><b>📝 Nota manual</b>
+      ${n.text?`<span>${esc(n.text)}</span>`:'<span>Toque para editar</span>'}</div>
+    <button class="pl-x" data-act="delnote" data-arg="${n.id}"
+      onclick="delManualNote('${n.id}');return false;">✕</button>
+    </div>`;
+}
+let NF=null;
+window.noteEdit=ts=>{
+  const k=dayKey(ts);
+  const existing=manualNoteOn(k);
+  NF=existing?JSON.parse(JSON.stringify(existing)):{id:null,date:ts,text:'',check:false};
+  drawNoteForm();
+};
+window.noteEditById=id=>{
+  const n=manualNotes().find(x=>x.id===id); if(!n)return;
+  NF=JSON.parse(JSON.stringify(n));
+  drawNoteForm();
+};
+window.noteToggleCheck=()=>{NF.check=!NF.check;drawNoteForm();};
+function drawNoteForm(){
+  const isNew=!NF.id;
+  setModalHTML(`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>Nota manual</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin:-6px 0 14px">${fdateW(NF.date)}</div>
+      <div class="field"><label>O que você fez</label>
+        <textarea rows="3" placeholder="Ex: não deu pra correr, fiz 40min de bike"
+          oninput="NF.text=this.value">${esc(NF.text)}</textarea></div>
+      <button class="adhoc-t ${NF.check?'on':''}" style="margin-top:14px" onclick="noteToggleCheck()">
+        <input type="checkbox" ${NF.check?'checked':''} onclick="event.stopPropagation();noteToggleCheck()">
+        ✓ Contar como treino feito</button>
+      <div class="adhoc-hint">${NF.check
+        ?'Conta nos contadores de treino da aba Treinos e entra no relatório para IA e no backup.'
+        :'Marque se essa atividade substitui o treino planejado — passa a contar nas metas.'}</div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+        <button class="btn-a" onclick="noteSave()">Salvar</button></div>
+      ${isNew?'':`<button class="btn-ghost btn-sm" style="margin-top:12px;color:#ff5a5a;width:100%"
+        onclick="delManualNote('${NF.id}')">Excluir nota</button>`}
+    </div></div>`);
+}
+window.noteSave=async()=>{
+  const text=(NF.text||'').trim();
+  if(!text&&!NF.check)return toast('Escreva algo ou marque como treino feito');
+  pushUndo(NF.id?'editar nota manual':'criar nota manual');
+  if(!Array.isArray(S.manualNotes))S.manualNotes=[];
+  if(NF.id){
+    const i=S.manualNotes.findIndex(x=>x.id===NF.id);
+    if(i>=0)S.manualNotes[i]={id:NF.id,date:NF.date,text,check:!!NF.check};
+  }else{
+    S.manualNotes.push({id:uid(),date:NF.date,text,check:!!NF.check});
+  }
+  NF=null;
+  await save();closeM();render();toast('Nota salva');
+};
+async function delManualNote(id){
+  const n=manualNotes().find(x=>x.id===id);
+  if(!n)return toast('Nota não encontrada');
+  const ok=await ask('Excluir nota manual?',n.text||fdate(n.date),'Excluir',true);
+  if(!ok)return;
+  pushUndo('excluir nota manual');
+  S.manualNotes=(S.manualNotes||[]).filter(x=>x.id!==id);
+  if(NF&&NF.id===id)NF=null;
+  await save();
+  try{closeM();}catch(e){}
+  render();
+  toast('Nota excluída');
+}
+window.delManualNote=delManualNote;
+
 /* --- item de um plano no calendário (qualquer tipo) --- */
 function planItemHTML(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
@@ -2906,7 +2993,9 @@ function planCal(y,mo){
     return d.getFullYear()===y&&d.getMonth()===mo;}).length;
   const monthMobDone=S.mobility.filter(r=>{const d=new Date(r.date);
     return d.getFullYear()===y&&d.getMonth()===mo;}).length;
-  const doneTot=monthGymDone+monthRunDone+monthMobDone;
+  const monthNoteDone=manualNotes().filter(n=>{const d=new Date(n.date);
+    return n.check&&d.getFullYear()===y&&d.getMonth()===mo;}).length;
+  const doneTot=monthGymDone+monthRunDone+monthMobDone+monthNoteDone;
   const doneN=monthPlans.filter(p=>p.doneId).length;
   h+=`<div class="rings" style="padding:13px">
     <div class="run-metrics" style="justify-content:space-around">
@@ -2942,9 +3031,11 @@ function planCal(y,mo){
         // dia passado: a aba Plano vira histórico puro aqui — mostra o que foi
         // realmente feito (via S.history/S.mobility/runs), não o que estava planejado
         historyItemsOn(k).forEach(it=>{h+=historyItemHTML(it);});
+        h+=manualNoteSlotHTML(dt.getTime(),k);
       }else{
         plansOn(k).forEach(p=>{h+=planItemHTML(p);});
         h+=`<button class="pl-add" onclick="planPickKind(${dt.getTime()})">+ planejar</button>`;
+        if(k===todayK)h+=manualNoteSlotHTML(dt.getTime(),k);
       }
       h+=`</div></div>`;
     }
@@ -3988,7 +4079,7 @@ window.resetApp=async()=>{
     'Dá pra reverter usando "Desfazer última alteração" em Configurações, mas só nesta mesma '+
     'sessão do app — depois de fechar ou recarregar, não tem mais como recuperar.','Sim, apagar tudo',true))return;
   pushUndo('resetar o aplicativo');
-  S={workouts:[],history:[],runs:[],plans:[],mobility:[]};
+  S={workouts:[],history:[],runs:[],plans:[],mobility:[],manualNotes:[]};
   try{localStorage.removeItem(LS_KEY);}catch(e){}
   try{localStorage.removeItem('lastBackupAt');}catch(e){}
   try{localStorage.removeItem('hideInstallHint');}catch(e){}
@@ -5457,7 +5548,9 @@ function buildMD(){
   const gs=[...S.history].sort((a,b)=>a.date-b.date);
   const rs=[...runs()].sort((a,b)=>a.date-b.date);
   const ms=[...S.mobility].sort((a,b)=>a.date-b.date);
-  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x}))]
+  const ns=[...manualNotes()].sort((a,b)=>a.date-b.date);
+  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x})),
+    ...ns.map(x=>({k:'note',d:x}))]
     .sort((a,b)=>a.d.date-b.d.date);
   const L=[];
   const fd=t=>{const d=new Date(t);
@@ -5473,7 +5566,9 @@ function buildMD(){
     L.push(`**Período coberto:** ${fd(d0)} a ${fd(d1)} (${dias} dias)`);
   }
   L.push(`**Metas declaradas:** ${g.week}/semana · ${g.month}/mês · ${g.year}/ano`);
-  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade`);
+  const nsCheck=ns.filter(n=>n.check).length;
+  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade`
+    +(ns.length?` · ${ns.length} nota(s) manual(is) (${nsCheck} conta(m) como treino feito)`:''));
   if(rs.length){
     const km=rs.reduce((a,r)=>a+r.km,0), sec=rs.reduce((a,r)=>a+r.sec,0);
     L.push(`**Corrida acumulada:** ${km.toFixed(1)} km em ${fmtDur(sec)} (pace médio ${fmtPace(paceOf(km,sec))}/km)`);
@@ -5583,6 +5678,24 @@ function buildMD(){
     L.push('');
   }
 
+  // --- notas manuais --- atividades alternativas anotadas à mão quando o treino
+  // planejado não foi feito (ou dias sem planejamento algum); "conta como treino"
+  // indica se aquilo entrou nos contadores de meta da aba Treinos
+  if(ns.length){
+    L.push('## Notas manuais');
+    L.push('');
+    L.push('_Anotações feitas à mão nos dias em que o treino planejado não foi cumprido mas outra '+
+      'atividade física foi realizada, ou em dias livres de planejamento. "Conta como treino" indica '+
+      'se essa nota foi somada aos contadores de meta do app._');
+    L.push('');
+    L.push('| Data | Nota | Conta como treino |');
+    L.push('|---|---|---|');
+    ns.forEach(n=>{
+      L.push(`| ${fd(n.date)} | ${(n.text||'—').replace(/\|/g,'/')} | ${n.check?'Sim':'Não'} |`);
+    });
+    L.push('');
+  }
+
   // --- cronologia unificada ---
   L.push('## Cronologia completa');
   L.push('');
@@ -5598,6 +5711,9 @@ function buildMD(){
       const rg=(m.regions&&m.regions.length)?' ['+m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', ')+']':'';
       const tg=(m.tags&&m.tags.length)?' ['+m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', ')+']':'';
       L.push(`| ${fd(m.date)} | Mobilidade | ${m.name}${rg}${tg}: ${m.exercises.length} exercícios, ${fmtDur(m.sec)} |`);
+    }else if(it.k==='note'){
+      const n=it.d;
+      L.push(`| ${fd(n.date)} | Nota manual | ${(n.text||'—').replace(/\|/g,'/')}${n.check?' (conta como treino feito)':''} |`);
     }else{
       const s=it.d;
       const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
@@ -5612,22 +5728,23 @@ function buildMD(){
   L.push('');
 
   // frequência semanal combinada
-  L.push('## Frequência semanal (musculação + corrida + mobilidade)');
+  L.push('## Frequência semanal (musculação + corrida + mobilidade + notas manuais)');
   L.push('');
-  L.push('| Semana (início) | Musculação | Corrida | Mobilidade | Total | Meta |');
-  L.push('|---|---|---|---|---|---|');
+  L.push('| Semana (início) | Musculação | Corrida | Mobilidade | Nota (treino) | Total | Meta |');
+  L.push('|---|---|---|---|---|---|---|');
   const fw={};
   const add=(ts,key)=>{
     const d=new Date(ts); const dow=(d.getDay()+6)%7;
     d.setDate(d.getDate()-dow); d.setHours(0,0,0,0);
-    const k=d.getTime(); fw[k]=fw[k]||{gym:0,run:0,mob:0}; fw[k][key]++;
+    const k=d.getTime(); fw[k]=fw[k]||{gym:0,run:0,mob:0,note:0}; fw[k][key]++;
   };
   gs.forEach(s=>add(s.date,'gym'));
   rs.forEach(r=>add(r.date,'run'));
   ms.forEach(m=>add(m.date,'mob'));
+  ns.filter(n=>n.check).forEach(n=>add(n.date,'note'));
   Object.keys(fw).sort((a,b)=>a-b).forEach(k=>{
-    const v=fw[k], tot=v.gym+v.run+v.mob;
-    L.push(`| ${fd(+k)} | ${v.gym} | ${v.run} | ${v.mob} | ${tot} | ${g.week} ${tot>=g.week?'✅':'❌'} |`);
+    const v=fw[k], tot=v.gym+v.run+v.mob+v.note;
+    L.push(`| ${fd(+k)} | ${v.gym} | ${v.run} | ${v.mob} | ${v.note} | ${tot} | ${g.week} ${tot>=g.week?'✅':'❌'} |`);
   });
   L.push('');
   L.push('---');
@@ -5636,7 +5753,7 @@ function buildMD(){
   return L.join('\n');
 }
 window.exportMD=()=>{
-  if(!S.history.length&&!runs().length&&!S.mobility.length)return toast('Nenhum treino para exportar');
+  if(!S.history.length&&!runs().length&&!S.mobility.length&&!manualNotes().length)return toast('Nenhum treino para exportar');
   try{
     const md=buildMD();
     const d=new Date(), p=n=>String(n).padStart(2,'0');
@@ -5651,7 +5768,7 @@ window.exportMD=()=>{
   }catch(e){toast('Falha ao gerar relatório')}
 };
 window.mdInfo=()=>{
-  const n=S.history.length+runs().length+S.mobility.length;
+  const n=S.history.length+runs().length+S.mobility.length+manualNotes().length;
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
       <h2>Relatório para IA</h2>
@@ -5707,7 +5824,8 @@ window.exportData=()=>{
 window.doExport=()=>{
   try{
     const payload={_app:'treinos',_v:5,_exportedAt:new Date().toISOString(),
-      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility};
+      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility,
+      manualNotes:manualNotes()};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -5735,15 +5853,16 @@ window.doImport=inp=>{
     if(!d||!Array.isArray(d.workouts)||!Array.isArray(d.history))
       return toast('Não parece um backup de treinos');
     const when=d._exportedAt?fdate(new Date(d._exportedAt).getTime()):'data desconhecida';
-    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade\n`+
-      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade\n\n`+
+    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade, ${(d.manualNotes||[]).length} nota(s) manual(is)\n`+
+      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade, ${manualNotes().length} nota(s) manual(is)\n\n`+
       `Os dados atuais serão substituídos.`;
     if(!await ask(`Restaurar backup de ${when}?`,det,'Restaurar',true))return;
     pushUndo('restaurar backup');
     S={workouts:d.workouts,history:d.history,goals:d.goals||S.goals,
        runs:Array.isArray(d.runs)?d.runs:[],
        plans:Array.isArray(d.plans)?d.plans:[],
-       mobility:Array.isArray(d.mobility)?d.mobility:[]};
+       mobility:Array.isArray(d.mobility)?d.mobility:[],
+       manualNotes:Array.isArray(d.manualNotes)?d.manualNotes:[]};
     await save();closeM();view='home';render();toast('Dados restaurados');
   };
   r.onerror=()=>toast('Erro ao ler o arquivo');

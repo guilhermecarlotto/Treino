@@ -725,6 +725,16 @@ async function load(){
   });
   if(needsSeed)save(); // primeiro login nesse aparelho: sobe a cópia atual pra nuvem
   render();
+  // ---- Planejamento novo deixado pelo planejador do PC (sincronização direta pela nuvem) ----
+  try{
+    if(window.__cloudPullPendingImport){
+      const pending=await window.__cloudPullPendingImport();
+      if(pending){
+        await applyImportedPlanData(pending);
+        if(window.__cloudClearPendingImport)window.__cloudClearPendingImport();
+      }
+    }
+  }catch(e){}
 }
 async function save(){
   S._updatedAt=Date.now();
@@ -939,26 +949,6 @@ function config(){
       `<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">${esc(undoStack[undoStack.length-1].label)}</div>`
       :'<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Nada para desfazer</div>'}</span>
     ${undoStack.length?`<span class="mv">${undoStack.length}</span>`:''}</button>`;
-  h+='<div class="sec-lbl">Aparência</div>';
-  h+=`<div class="mcard" style="cursor:default">
-    <span class="mi">${theme==='light'?'☀️':'🌙'}</span>
-    <span class="mt">Modo claro<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Troca o visual do app para um tema claro</div></span>
-    <label class="tgl"><input type="checkbox" ${theme==='light'?'checked':''}
-      onchange="setTheme(this.checked?'light':'dark')"><span class="tgl-trk"></span></label>
-  </div>`;
-  h+='<div class="sec-lbl">Notificações</div>';
-  h+=`<button class="mcard" onclick="openNotif()">
-    <span class="mi">🔔</span><span class="mt">Notificações</span>
-    <span class="mv">${notifN?notifN:'—'}</span><span class="mc">›</span></button>`;
-  h+='<div class="sec-lbl">Progresso</div>';
-  h+=`<button class="mcard" onclick="openEvolucao()">
-    <span class="mi">📊</span><span class="mt">Evolução<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Gráficos e histórico de performance</div></span>
-    <span class="mc">›</span></button>`;
-  h+='<div class="sec-lbl">Preferências</div>';
-  h+=`<button class="mcard" onclick="openGoals()">
-    <span class="mi">🎯</span><span class="mt">Metas de treino<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Semanal, mensal e anual</div></span>
-    <span class="mv">${g.week}/sem</span><span class="mc">›</span></button>`;
-
   h+='<div class="sec-lbl">Nuvem</div>';
   h+=`<div class="mcard" style="cursor:default">
     <span class="mi">☁️</span>
@@ -967,10 +957,25 @@ function config(){
       new Date(S._updatedAt).toLocaleDateString('pt-BR')+'<br>'+new Date(S._updatedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
       :'—'}</span>
   </div>`;
-  h+='<div class="sec-lbl">Registro</div>';
-  h+=`<button class="mcard" onclick="openOtherForm()">
-    <span class="mi">🧩</span><span class="mt">Registrar treino diferente<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Pra atividades fora do molde padrão (ex.: caminhada) — vira um texto livre no histórico</div></span>
+  h+='<div class="sec-lbl">Notificações</div>';
+  h+=`<button class="mcard" onclick="openNotif()">
+    <span class="mi">🔔</span><span class="mt">Notificações</span>
+    <span class="mv">${notifN?notifN:'—'}</span><span class="mc">›</span></button>`;
+  h+='<div class="sec-lbl">Aparência</div>';
+  h+=`<div class="mcard" style="cursor:default">
+    <span class="mi">${theme==='light'?'☀️':'🌙'}</span>
+    <span class="mt">Modo claro<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Troca o visual do app para um tema claro</div></span>
+    <label class="tgl"><input type="checkbox" ${theme==='light'?'checked':''}
+      onchange="setTheme(this.checked?'light':'dark')"><span class="tgl-trk"></span></label>
+  </div>`;
+  h+='<div class="sec-lbl">Progresso</div>';
+  h+=`<button class="mcard" onclick="openEvolucao()">
+    <span class="mi">📊</span><span class="mt">Evolução<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Gráficos e histórico de performance</div></span>
     <span class="mc">›</span></button>`;
+  h+='<div class="sec-lbl">Preferências</div>';
+  h+=`<button class="mcard" onclick="openGoals()">
+    <span class="mi">🎯</span><span class="mt">Metas de treino<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Semanal, mensal e anual</div></span>
+    <span class="mv">${g.week}/sem</span><span class="mc">›</span></button>`;
 
   h+='<div class="sec-lbl">Planejamento</div>';
   h+=`<button class="mcard" ${plans().length?'':'disabled style="opacity:.45"'} onclick="openDupForm()">
@@ -1015,8 +1020,8 @@ function config(){
 // vale pra observação dos outros tipos).
 let OF=null;
 const OTHER_DEFAULT_NAME='Treino diferente';
-window.openOtherForm=()=>{
-  OF={date:Date.now(),name:'',desc:''};
+window.openOtherForm=(ts)=>{
+  OF={date:ts||Date.now(),name:'',desc:''};
   drawOtherForm();
 };
 function drawOtherForm(){
@@ -3157,6 +3162,7 @@ window.planPickKind=ts=>{
       <button class="menu-item" onclick="closeM();planNew(${ts},'run')"><span class="ic">🏃</span>Corrida</button>
       <button class="menu-item" onclick="closeM();planNew(${ts},'gym')"><span class="ic">🏋️</span>Musculação</button>
       <button class="menu-item" onclick="closeM();planNew(${ts},'mobility')"><span class="ic">🧘</span>Mobilidade</button>
+      <button class="menu-item" onclick="closeM();openOtherForm(${ts})"><span class="ic">🧩</span>Treino diferente</button>
       <div class="menu-sep"></div>
       <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Cancelar</button>
     </div></div>`;
@@ -4142,6 +4148,11 @@ window.arcW=async(id,v)=>{
   w.archived=v;await save();closeM();render();
   toast(v?'Treino arquivado':'Treino restaurado');
 };
+window.unarcConfirm=async(id)=>{
+  const w=S.workouts.find(x=>x.id===id); if(!w)return;
+  if(!await ask(`Desarquivar "${w.name}"?`,'O treino volta a aparecer na lista principal.','Desarquivar'))return;
+  arcW(id,false);
+};
 window.dupW=async id=>{
   const w=S.workouts.find(x=>x.id===id);
   const nw={id:uid(),name:w.name+' (cópia)',
@@ -4266,8 +4277,9 @@ function archived(){
         ${musclesPillHTML(w.muscles)}
         <ul>${w.exercises.map(e=>`<li>${esc(e.name)}</li>`).join('')}</ul>
         ${l?`<div style="font-size:12px;color:var(--dim);margin-top:10px">Último treino: ${fdate(l.date)}</div>`:''}
-        <div style="margin-top:12px">
-          <button class="btn-g btn-sm" onclick="arcW('${w.id}',false)">↩ Desarquivar</button>
+        <div class="row" style="margin-top:12px">
+          <button class="btn-g btn-sm" style="flex:1" onclick="unarcConfirm('${w.id}')">↩ Desarquivar</button>
+          <button class="btn-ghost btn-sm" style="flex:1;color:#ff5a5a;border:1px solid rgba(255,90,90,.35)" onclick="delW('${w.id}')">🗑 Excluir</button>
         </div></div>`;
     }
     h+='</div>';
@@ -6100,9 +6112,17 @@ window.doImportPlan=inp=>{
   inp.value='';
   if(!f)return;
   const r=new FileReader();
-  r.onload=async()=>{
+  r.onload=()=>{
     let d;
     try{d=JSON.parse(r.result);}catch(e){return toast('Arquivo invalido');}
+    applyImportedPlanData(d);
+  };
+  r.onerror=()=>toast('Erro ao ler o arquivo');
+  r.readAsText(f);
+};
+// núcleo do import (compartilhado entre o arquivo .json e a sincronização direta pela nuvem):
+// recebe o objeto já decodificado ({workouts,plans}) e aplica a mesma mesclagem de sempre.
+window.applyImportedPlanData=async(d)=>{
     const list=Array.isArray(d)?d:(Array.isArray(d&&d.plans)?d.plans:null);
     if(!list)return toast('Nao parece um arquivo de planejamento de corrida');
     if(!Array.isArray(S.plans))S.plans=[];
@@ -6214,9 +6234,6 @@ window.doImportPlan=inp=>{
       }
     });
     await save();closeM();plRef=null;view='plan';render();toast('Planejamento importado');
-  };
-  r.onerror=()=>toast('Erro ao ler o arquivo');
-  r.readAsText(f);
 };
 
 /* ---------- ROUTER ---------- */
@@ -6280,7 +6297,7 @@ if('serviceWorker' in navigator){
     signInWithEmailAndPassword, sendPasswordResetEmail, signOut
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
   import {
-    getFirestore, doc, getDoc, setDoc, enableIndexedDbPersistence
+    getFirestore, doc, getDoc, setDoc, deleteDoc, enableIndexedDbPersistence
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -6299,6 +6316,24 @@ if('serviceWorker' in navigator){
   try{ await setPersistence(auth, browserLocalPersistence); }catch(e){}
 
   const cloudDocRef = (uid) => doc(db, 'users', uid, 'data', 'main');
+  // documento "caixa de entrada": o planejador do PC deixa aqui o planejamento novo, e o
+  // app do celular consome (aplica e apaga) na próxima vez que abrir — é a sincronização
+  // direta que substitui o exportar/importar manual do arquivo .json.
+  const pendingImportRef = (uid) => doc(db, 'users', uid, 'data', 'pendingPlanImport');
+
+  window.__cloudPullPendingImport = async function(){
+    const user = auth.currentUser;
+    if(!user) return null;
+    try{
+      const snap = await getDoc(pendingImportRef(user.uid));
+      return snap.exists() ? snap.data() : null;
+    }catch(e){ return null; }
+  };
+  window.__cloudClearPendingImport = async function(){
+    const user = auth.currentUser;
+    if(!user) return;
+    try{ await deleteDoc(pendingImportRef(user.uid)); }catch(e){}
+  };
 
   window.__cloudLoad = async function(){
     const user = auth.currentUser;

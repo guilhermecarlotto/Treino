@@ -611,6 +611,10 @@ const toast=m=>{const t=$('toast');t.textContent=m;t.classList.add('on');
   setTimeout(()=>t.classList.remove('on'),1600)};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// caixa de leitura do feedback de um treino já concluído, reaproveitada nas telas de histórico
+const fbBox=fb=>fb?`<div style="background:rgba(91,141,239,.1);border:1px solid rgba(91,141,239,.35);
+  border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--txt);line-height:1.6;margin-top:10px">
+  <b style="color:#5b8def">FEEDBACK</b><br>${esc(fb)}</div>`:'';
 const fmtSet=(reps,peso,bw)=>bw?(esc(reps)+' reps'):(esc(reps)+'×'+esc(peso));
 const fdate=d=>new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
 const DOW=['dom','seg','ter','qua','qui','sex','sáb'];
@@ -678,6 +682,7 @@ async function load(){
   if(!Array.isArray(S.runs))S.runs=[];
   if(!Array.isArray(S.plans))S.plans=[];
   if(!Array.isArray(S.mobility))S.mobility=[];
+  if(!Array.isArray(S.other))S.other=[]; // registros de "treino diferente" (texto livre, sem molde padrão)
   if(!Array.isArray(S.exDict))S.exDict=[]; // nomes de exercício "aprendidos" (correção ortográfica)
   if(!S.goalsResetAt)S.goalsResetAt=0; // treinos feitos antes disso não contam mais nas metas
   // migra tipos removidos: easy -> regen, tempo -> limiar, race -> longao
@@ -868,6 +873,7 @@ function pushUndo(label){
     runs:JSON.parse(JSON.stringify(S.runs||[])),
     plans:JSON.parse(JSON.stringify(S.plans||[])),
     mobility:JSON.parse(JSON.stringify(S.mobility||[])),
+    other:JSON.parse(JSON.stringify(S.other||[])),
     goals:JSON.parse(JSON.stringify(S.goals||{}))});
   if(undoStack.length>UNDO_MAX)undoStack.shift();
 }
@@ -875,7 +881,7 @@ window.undoLast=async()=>{
   if(!undoStack.length)return;
   const snap=undoStack.pop();
   S.workouts=snap.workouts;S.history=snap.history;S.runs=snap.runs;
-  S.plans=snap.plans;S.mobility=snap.mobility;S.goals=snap.goals;
+  S.plans=snap.plans;S.mobility=snap.mobility;S.other=snap.other||[];S.goals=snap.goals;
   await save();closeM();render();toast('Desfeito: '+snap.label);
 };
 
@@ -919,6 +925,11 @@ function config(){
     <span class="mi">🎯</span><span class="mt">Metas de treino<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Semanal, mensal e anual</div></span>
     <span class="mv">${g.week}/sem</span><span class="mc">›</span></button>`;
 
+  h+='<div class="sec-lbl">Registro</div>';
+  h+=`<button class="mcard" onclick="openOtherForm()">
+    <span class="mi">🧩</span><span class="mt">Registrar treino diferente<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Pra atividades fora do molde padrão (ex.: caminhada) — vira um texto livre no histórico</div></span>
+    <span class="mc">›</span></button>`;
+
   h+='<div class="sec-lbl">Gerenciar treinos</div>';
   h+=`<button class="mcard" onclick="openArc()">
     <span class="mi">📦</span><span class="mt">Treinos arquivados</span>
@@ -936,7 +947,7 @@ function config(){
     <span class="mc">›</span></button>`;
   h+=`<button class="mcard" onclick="exportData()">
     <span class="mi">💾</span><span class="mt">Backup dos dados</span>
-    <span class="mv">${S.history.length+runs().length+S.mobility.length} registros</span><span class="mc">›</span></button>`;
+    <span class="mv">${S.history.length+runs().length+S.mobility.length+(S.other||[]).length} registros</span><span class="mc">›</span></button>`;
   h+=`<button class="mcard" onclick="importPlanOpen()">
     <span class="mi">📥</span><span class="mt">Importar planejamento (PC)<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Adiciona o plano de corrida feito no computador</div></span>
     <span class="mc">›</span></button>`;
@@ -944,6 +955,73 @@ function config(){
     <span class="mi">🔧</span><span class="mt">Diagnóstico<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Registro técnico de erros</div></span>
     <span class="mc">›</span></button>`;
   $('app').innerHTML=h;$('fab').innerHTML='';
+}
+
+/* ---------- TREINO DIFERENTE (texto livre, fora do molde padrão) ---------- */
+// pra atividades que não cabem em musculação/corrida/mobilidade (ex.: caminhada,
+// natação, um esporte qualquer) — pedido explícito do usuário. É só um registro de
+// texto livre com data; aparece no histórico completo e no relatório para IA, mas
+// no calendário da aba Plano só marca "aconteceu um treino diferente" nesse dia,
+// sem mostrar a descrição (mesma lógica de não poluir o mini-calendário que já
+// vale pra observação dos outros tipos).
+let OF=null;
+const OTHER_DEFAULT_NAME='Treino diferente';
+window.openOtherForm=()=>{
+  OF={date:Date.now(),name:'',desc:''};
+  drawOtherForm();
+};
+function drawOtherForm(){
+  const d=new Date(OF.date);
+  const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  let h=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>Registrar treino diferente</h2>
+      <div style="font-size:12.5px;color:var(--dim);line-height:1.55;margin:-8px 0 14px">
+        Pra quando você fez alguma atividade fora do molde de musculação, corrida ou
+        mobilidade (uma caminhada, por exemplo). Descreva o que fez — isso entra no
+        histórico e no Relatório para IA. No calendário da aba Plano aparece só o
+        nome, sem a descrição.</div>
+      <div class="field"><label>Nome (opcional)</label>
+        <input type="text" value="${esc(OF.name)}" placeholder="${OTHER_DEFAULT_NAME}"
+          oninput="OF.name=this.value"></div>
+      <div class="field"><label>Data</label>
+        <input type="date" value="${dv}" onchange="ofDate(this.value)"></div>
+      <div class="field"><label>O que você fez?</label>
+        <textarea rows="5" placeholder="Ex.: Caminhada de 40min no parque, ritmo leve, sem dor no joelho..."
+          oninput="OF.desc=this.value">${esc(OF.desc)}</textarea></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+        <button class="btn-a" onclick="saveOtherForm()">Salvar</button></div>
+    </div></div>`;
+  setModalHTML(h);
+}
+window.ofDate=v=>{
+  const [y,m,dd]=v.split('-').map(Number);
+  const o=new Date(OF.date); o.setFullYear(y,m-1,dd); OF.date=o.getTime();
+};
+window.saveOtherForm=async()=>{
+  const desc=(OF.desc||'').trim();
+  if(!desc)return toast('Escreva o que você fez');
+  const name=(OF.name||'').trim()||OTHER_DEFAULT_NAME;
+  pushUndo('registrar treino diferente');
+  S.other=S.other||[];
+  S.other.push({id:uid(),date:OF.date,name,desc});
+  await save();closeM();render();toast('Treino diferente registrado');
+};
+window.delOther=async id=>{
+  if(!await ask('Excluir registro?','Este treino diferente será removido do histórico permanentemente.','Excluir',true))return;
+  pushUndo('excluir treino diferente');
+  S.other=(S.other||[]).filter(x=>x.id!==id);await save();render();
+};
+// itens de "treino diferente" num dia (aba Plano) — igual pra dia passado ou de hoje,
+// já que este tipo não tem conceito de "plano" (é sempre um registro do que já foi feito)
+function otherItemsOn(k){
+  return (S.other||[]).filter(o=>dayKey(o.date)===k);
+}
+function otherItemHTML(o){
+  return `<div class="pl-item done" style="--pc2:#b98cf0">
+    <div class="pi" data-act="histday" data-arg="other:${o.id}"><b>🧩 ${esc(o.name||OTHER_DEFAULT_NAME)}</b></div>
+    </div>`;
 }
 
 /* ---------- METAS ---------- */
@@ -1988,7 +2066,8 @@ window.runMenu=id=>{
       </div>
       ${structSummary(r).replace('class="struct"','class="struct" style="margin-bottom:14px;border-top:none;padding-top:0"')}
       ${r.note?`<div style="font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:14px">${esc(r.note)}</div>`:''}
-      <button class="menu-item" onclick="closeM();runForm('${id}')"><span class="ic">✎</span>Editar registro</button>
+      ${fbBox(r.feedback)}
+      <button class="menu-item" style="margin-top:14px" onclick="closeM();runForm('${id}')"><span class="ic">✎</span>Editar registro</button>
       <button class="menu-item danger" onclick="delRun('${id}')"><span class="ic">🗑</span>Excluir registro</button>
       <div class="menu-sep"></div>
       <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Fechar</button>
@@ -2812,6 +2891,13 @@ window.histDayDetail=arg=>{
         detail=`<div class="ct2"><span>Duração</span><b>${fmtDur(m.sec)}</b></div>
           <div class="ct2"><span>Exercícios feitos</span><b>${m.exercises.length}</b></div>`;
       }
+    }else if(kind==='other'){
+      const o=(S.other||[]).find(x=>x.id===id);
+      if(o){
+        nome='🧩 '+(o.name||OTHER_DEFAULT_NAME);
+        detail=`<div class="ct2" style="grid-column:1/-1"><span>Data</span><b>${fdateW(o.date)}</b></div>`;
+        extra=`<div style="font-size:13px;color:var(--txt);line-height:1.6;margin-top:4px;white-space:pre-wrap">${esc(o.desc)}</div>`;
+      }
     }else{
       const s=(S.history||[]).find(x=>x.id===id);
       if(s){
@@ -2948,8 +3034,12 @@ function planCal(y,mo){
         // dia passado: a aba Plano vira histórico puro aqui — mostra o que foi
         // realmente feito (via S.history/S.mobility/runs), não o que estava planejado
         historyItemsOn(k).forEach(it=>{h+=historyItemHTML(it);});
+        otherItemsOn(k).forEach(o=>{h+=otherItemHTML(o);});
       }else{
         plansOn(k).forEach(p=>{h+=planItemHTML(p);});
+        // "treino diferente" não é planejado — é sempre um registro do que já foi feito,
+        // então aparece mesmo no dia de hoje (que normalmente só mostra planejamento)
+        otherItemsOn(k).forEach(o=>{h+=otherItemHTML(o);});
         h+=`<button class="pl-add" onclick="planPickKind(${dt.getTime()})">+ planejar</button>`;
       }
       h+=`</div></div>`;
@@ -3981,11 +4071,11 @@ function delScreen(){
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
 window.resetApp=async()=>{
-  const nW=S.workouts.length, nS=S.history.length, nR=runs().length, nP=plans().length, nM=S.mobility.length;
-  const total=nW+nS+nR+nP+nM;
+  const nW=S.workouts.length, nS=S.history.length, nR=runs().length, nP=plans().length, nM=S.mobility.length, nO=(S.other||[]).length;
+  const total=nW+nS+nR+nP+nM+nO;
   if(!await ask('Resetar o aplicativo?',
     `Isso apaga PERMANENTEMENTE ${nW} treino(s), ${nS} sessão(ões) de musculação, ${nR} corrida(s), `+
-    `${nM} sessão(ões) de mobilidade `+
+    `${nM} sessão(ões) de mobilidade, ${nO} treino(s) diferente(s) `+
     `e ${nP} planejamento(s) salvos neste aparelho — ${total} registro(s) no total — além das metas `+
     `configuradas. O app volta a ficar como recém-instalado.\n\nSe ainda não fez backup, cancele agora `+
     `e gere um em "Backup dos dados" antes de continuar.`,
@@ -3994,7 +4084,7 @@ window.resetApp=async()=>{
     'Dá pra reverter usando "Desfazer última alteração" em Configurações, mas só nesta mesma '+
     'sessão do app — depois de fechar ou recarregar, não tem mais como recuperar.','Sim, apagar tudo',true))return;
   pushUndo('resetar o aplicativo');
-  S={workouts:[],history:[],runs:[],plans:[],mobility:[]};
+  S={workouts:[],history:[],runs:[],plans:[],mobility:[],other:[]};
   try{localStorage.removeItem(LS_KEY);}catch(e){}
   try{localStorage.removeItem('lastBackupAt');}catch(e){}
   try{localStorage.removeItem('hideInstallHint');}catch(e){}
@@ -4929,9 +5019,11 @@ function hist(){
   const gsAll=S.history.map(s=>({k:'gym',date:s.date,d:s}));
   const rrAll=runs().map(r=>({k:'run',date:r.date,d:r}));
   const msAll=S.mobility.map(m=>({k:'mobility',date:m.date,d:m}));
+  const osAll=(S.other||[]).map(o=>({k:'other',date:o.date,d:o}));
 
   // filtro nível 1
-  let base = hFlt==='gym'?gsAll : hFlt==='run'?rrAll : hFlt==='mobility'?msAll : [...gsAll,...rrAll,...msAll];
+  let base = hFlt==='gym'?gsAll : hFlt==='run'?rrAll : hFlt==='mobility'?msAll : hFlt==='other'?osAll
+    : [...gsAll,...rrAll,...msAll,...osAll];
   // filtro nível 2
   if(hFlt==='run'&&hRunT!=='all')base=base.filter(x=>x.d.type===hRunT);
   if(hFlt==='gym'&&hGymW!=='all')base=base.filter(x=>x.d.wid===hGymW);
@@ -4939,7 +5031,7 @@ function hist(){
   if(hFlt==='mobility'&&hMobW!=='all')base=base.filter(x=>x.d.wid===hMobW);
   const all=base.sort((a,b)=>b.date-a.date);
 
-  $('sub').textContent=`${gsAll.length} musculação · ${rrAll.length} corrida · ${msAll.length} mobilidade`;
+  $('sub').textContent=`${gsAll.length} musculação · ${rrAll.length} corrida · ${msAll.length} mobilidade${osAll.length?` · ${osAll.length} diferente`:''}`;
 
   let h=`<div class="seg" style="margin-bottom:12px">
     <button class="${histView==='list'?'on':''}" onclick="setHistView('list')">🕘 Lista</button>
@@ -4948,13 +5040,15 @@ function hist(){
 
   h+=`<div class="flt">
     <button class="fb ${hFlt==='all'?'on':''}" onclick="setHFlt('all')">
-      Todos <span class="fc">${gsAll.length+rrAll.length+msAll.length}</span></button>
+      Todos <span class="fc">${gsAll.length+rrAll.length+msAll.length+osAll.length}</span></button>
     <button class="fb ${hFlt==='gym'?'on':''}" style="--fbc:var(--accent)" onclick="setHFlt('gym')">
       🏋️ Musculação <span class="fc">${gsAll.length}</span></button>
     <button class="fb ${hFlt==='run'?'on':''}" style="--fbc:#5b8def" onclick="setHFlt('run')">
       🏃 Corrida <span class="fc">${rrAll.length}</span></button>
     <button class="fb ${hFlt==='mobility'?'on':''}" style="--fbc:#5f9e8f" onclick="setHFlt('mobility')">
       🧘 Mobilidade <span class="fc">${msAll.length}</span></button>
+    ${osAll.length?`<button class="fb ${hFlt==='other'?'on':''}" style="--fbc:#b98cf0" onclick="setHFlt('other')">
+      🧩 Diferente <span class="fc">${osAll.length}</span></button>`:''}
   </div>`;
 
   // subfiltro de mobilidade
@@ -5054,6 +5148,16 @@ function hist(){
         </div>${structSummary(r)}</div>`;
       return;
     }
+    if(it.k==='other'){
+      const o=it.d;
+      h+=`<div class="card w-card" style="--wc:#b98cf0" data-c="1"><div class="hist-row">
+        <strong>🧩 ${esc(o.name||OTHER_DEFAULT_NAME)}</strong><span>${fdateW(o.date)}</span></div>
+        <div class="hist-row"><span style="color:var(--txt);white-space:pre-wrap">${esc(o.desc)}</span></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="delOther('${o.id}')">Excluir registro</button>
+        </div></div>`;
+      return;
+    }
     if(it.k==='mobility'){
       const m=it.d;
       const w=S.workouts.find(x=>x.id===m.wid);
@@ -5064,6 +5168,7 @@ function hist(){
       m.exercises.forEach(e=>{
         h+=`<div class="hist-row"><span style="color:var(--txt)">${esc(e.name)}</span></div>`;
       });
+      h+=fbBox(m.feedback);
       h+=`<div class="row" style="margin-top:10px">
         <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="delMobH('${m.id}')">Excluir sessão</button>
       </div></div>`;
@@ -5089,6 +5194,7 @@ function hist(){
           <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
       });
       h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
+      h+=fbBox(s.feedback);
       h+=`<div class="row" style="margin-top:10px">
         <button class="btn-ghost btn-sm" onclick="event.stopPropagation();editHist('${s.id}')">✎ Editar treino</button>
         <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="event.stopPropagation();delH('${s.id}')">Excluir sessão</button>
@@ -5481,7 +5587,9 @@ function buildMD(){
   const gs=[...S.history].sort((a,b)=>a.date-b.date);
   const rs=[...runs()].sort((a,b)=>a.date-b.date);
   const ms=[...S.mobility].sort((a,b)=>a.date-b.date);
-  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x}))]
+  const os=[...(S.other||[])].sort((a,b)=>a.date-b.date);
+  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x})),
+    ...os.map(x=>({k:'other',d:x}))]
     .sort((a,b)=>a.d.date-b.d.date);
   const L=[];
   const fd=t=>{const d=new Date(t);
@@ -5499,18 +5607,34 @@ function buildMD(){
     L.push(`**Período coberto:** ${fd(d0)} a ${fd(d1)} (${dias} dias)`);
   }
   L.push(`**Metas declaradas:** ${g.week}/semana · ${g.month}/mês · ${g.year}/ano`);
-  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade`);
+  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade${os.length?` · ${os.length} treino(s) diferente(s)`:''}`);
   if(rs.length){
     const km=rs.reduce((a,r)=>a+r.km,0), sec=rs.reduce((a,r)=>a+r.sec,0);
     L.push(`**Corrida acumulada:** ${km.toFixed(1)} km em ${fmtDur(sec)} (pace médio ${fmtPace(paceOf(km,sec))}/km)`);
   }
   L.push('');
 
+  // --- treinos diferentes: registro de texto livre, fora do molde padrão (ex.: caminhada) ---
+  // seção própria, em destaque, logo no topo — é justamente o tipo de registro que mais
+  // precisa chegar inteiro pra uma IA ler, já que não tem nenhum dado estruturado (só o texto)
+  if(os.length){
+    L.push('## Treinos diferentes');
+    L.push('');
+    L.push('_Atividades que o usuário registrou fora do molde padrão de musculação, corrida ou '+
+      'mobilidade (ex.: caminhada), descritas em texto livre por ele mesmo._ '+
+      '_**Considere esses registros junto com o restante do histórico ao planejar os próximos treinos.**_');
+    L.push('');
+    os.forEach(o=>{
+      L.push(`- **${fd(o.date)} — ${mdCell(o.name||OTHER_DEFAULT_NAME)}:** ${mdCell(o.desc)}`);
+    });
+    L.push('');
+  }
+
   // --- feedbacks dos treinos: seção própria, em destaque, pra IA não deixar passar ---
   // (texto livre digitado pelo usuário ao concluir/editar cada treino — não é a
   // "observação" de planejamento, é o relato de como o treino realmente foi)
   const withFb=all.filter(it=>{
-    const fb=it.k==='gym'?it.d.feedback:it.k==='run'?it.d.feedback:it.d.feedback;
+    const fb=it.k==='gym'?it.d.feedback:it.k==='run'?it.d.feedback:it.k==='mobility'?it.d.feedback:null;
     return fb&&String(fb).trim();
   });
   if(withFb.length){
@@ -5644,6 +5768,9 @@ function buildMD(){
       const rg=(m.regions&&m.regions.length)?' ['+m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', ')+']':'';
       const tg=(m.tags&&m.tags.length)?' ['+m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', ')+']':'';
       L.push(`| ${fd(m.date)} | Mobilidade | ${m.name}${rg}${tg}: ${m.exercises.length} exercícios, ${fmtDur(m.sec)} | ${mdCell(m.feedback)} |`);
+    }else if(it.k==='other'){
+      const o=it.d;
+      L.push(`| ${fd(o.date)} | Diferente | ${mdCell(o.name||OTHER_DEFAULT_NAME)}: ${mdCell(o.desc)} |  |`);
     }else{
       const s=it.d;
       const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
@@ -5682,7 +5809,7 @@ function buildMD(){
   return L.join('\n');
 }
 window.exportMD=()=>{
-  if(!S.history.length&&!runs().length&&!S.mobility.length)return toast('Nenhum treino para exportar');
+  if(!S.history.length&&!runs().length&&!S.mobility.length&&!(S.other||[]).length)return toast('Nenhum treino para exportar');
   try{
     const md=buildMD();
     const d=new Date(), p=n=>String(n).padStart(2,'0');
@@ -5697,7 +5824,7 @@ window.exportMD=()=>{
   }catch(e){toast('Falha ao gerar relatório')}
 };
 window.mdInfo=()=>{
-  const n=S.history.length+runs().length+S.mobility.length;
+  const n=S.history.length+runs().length+S.mobility.length+(S.other||[]).length;
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
       <h2>Relatório para IA</h2>
@@ -5753,7 +5880,8 @@ window.exportData=()=>{
 window.doExport=()=>{
   try{
     const payload={_app:'treinos',_v:5,_exportedAt:new Date().toISOString(),
-      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility};
+      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility,
+      other:S.other||[]};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -5781,15 +5909,16 @@ window.doImport=inp=>{
     if(!d||!Array.isArray(d.workouts)||!Array.isArray(d.history))
       return toast('Não parece um backup de treinos');
     const when=d._exportedAt?fdate(new Date(d._exportedAt).getTime()):'data desconhecida';
-    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade\n`+
-      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade\n\n`+
+    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade, ${(d.other||[]).length} diferentes\n`+
+      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade, ${(S.other||[]).length} diferentes\n\n`+
       `Os dados atuais serão substituídos.`;
     if(!await ask(`Restaurar backup de ${when}?`,det,'Restaurar',true))return;
     pushUndo('restaurar backup');
     S={workouts:d.workouts,history:d.history,goals:d.goals||S.goals,
        runs:Array.isArray(d.runs)?d.runs:[],
        plans:Array.isArray(d.plans)?d.plans:[],
-       mobility:Array.isArray(d.mobility)?d.mobility:[]};
+       mobility:Array.isArray(d.mobility)?d.mobility:[],
+       other:Array.isArray(d.other)?d.other:[]};
     await save();closeM();view='home';render();toast('Dados restaurados');
   };
   r.onerror=()=>toast('Erro ao ler o arquivo');

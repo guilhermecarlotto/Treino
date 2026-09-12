@@ -930,6 +930,11 @@ function config(){
     <span class="mi">🧩</span><span class="mt">Registrar treino diferente<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Pra atividades fora do molde padrão (ex.: caminhada) — vira um texto livre no histórico</div></span>
     <span class="mc">›</span></button>`;
 
+  h+='<div class="sec-lbl">Planejamento</div>';
+  h+=`<button class="mcard" ${plans().length?'':'disabled style="opacity:.45"'} onclick="openDupForm()">
+    <span class="mi">📑</span><span class="mt">Duplicar treino<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Copia um treino do planejamento (feito ou pendente) pra outra data, como pendente</div></span>
+    <span class="mc">›</span></button>`;
+
   h+='<div class="sec-lbl">Gerenciar treinos</div>';
   h+=`<button class="mcard" onclick="openArc()">
     <span class="mi">📦</span><span class="mt">Treinos arquivados</span>
@@ -3555,10 +3560,13 @@ function drawGymPlanForm(){
   h+=`<div class="field"><label>Instruções gerais</label>
         <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>`;
   // igual ao "✓ Feito" da corrida: em vez de só editar o alvo, dá pra ir direto pra sessão de
-  // verdade — só faz sentido pra um plano de treino salvo já existente, marcado pra hoje
-  if(PF.id&&PF.mode==='workout'&&PF.wid&&dayKey(PF.date)===dayKey(Date.now())){
+  // verdade — só faz sentido pra um plano de treino salvo já existente (qualquer data: passado
+  // pendente, hoje ou futuro — pedido explícito do usuário pra treinos importados do PC, que
+  // chegam registrados só no plano). A sessão nasce com a data de HOJE (pfStartGym→openW já faz
+  // isso) mas continua vinculada a este plano original, que fica marcado como feito ao salvar.
+  if(PF.id&&PF.mode==='workout'&&PF.wid){
     h+=`<button class="btn-ghost btn-sm" style="width:100%;color:var(--accent2);border:1px solid rgba(61,220,151,.35);margin-bottom:10px"
-      onclick="pfStartGym()">▶ Iniciar este treino agora</button>`;
+      onclick="pfStartGym()">▶ Executar</button>`;
   }
   h+=`<div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
@@ -3846,6 +3854,79 @@ window.pfStartMob=()=>{
   const wid=PF.wid;
   PF=null;closeM();
   openMobW(wid);
+};
+
+/* ---------- DUPLICAR TREINO (copiar um item do planejamento pra outra data) ---------- */
+// pedido explícito do usuário: pegar um treino já planejado (musculação, corrida ou
+// mobilidade — feito ou ainda pendente) e copiar pra outra data, entrando nessa nova
+// data como pendente (sem doneId), sem mexer no plano original.
+let DUP=null;
+function dupLabel(p){
+  if(p.kind==='run'){const t=rType(p.type);return t[2]+' '+t[1]+(p.km?' de '+p.km+' km':'');}
+  if(p.kind==='mobility')return '🧘 '+mobPlanLabel(p);
+  return '🏋️ '+gymPlanLabel(p);
+}
+window.openDupForm=()=>{
+  if(!plans().length)return;
+  DUP={srcId:null,date:Date.now()};
+  drawDupForm();
+};
+function drawDupForm(){
+  let h;
+  const p=DUP.srcId?plans().find(x=>x.id===DUP.srcId):null;
+  if(!p){
+    const list=[...plans()].sort((a,b)=>b.date-a.date);
+    h=`<div class="modal" onclick="if(event.target===this)closeM()">
+      <div class="modal-in">
+        <h2>Duplicar treino</h2>
+        <div style="font-size:12.5px;color:var(--dim);line-height:1.55;margin:-8px 0 14px">
+          Escolha um treino do planejamento (feito ou pendente) pra copiar pra outra data.
+          A cópia entra na nova data como pendente — o original não é alterado.</div>
+        ${!list.length?'<div class="empty" style="padding:14px 6px">Nenhum treino planejado ainda.</div>':
+        list.map(x=>`<div class="card" style="padding:10px 12px;margin-bottom:8px;cursor:pointer" onclick="dupPick('${x.id}')">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+            <b style="font-size:13.5px">${esc(dupLabel(x))}</b>
+            <span style="font-size:11px;color:var(--dim);white-space:nowrap">${fdate(x.date)}${x.doneId?' · ✓ feito':' · pendente'}</span>
+          </div></div>`).join('')}
+        <div class="row" style="margin-top:6px">
+          <button class="btn-ghost" style="width:100%" onclick="closeM()">Cancelar</button></div>
+      </div></div>`;
+  }else{
+    const d=new Date(DUP.date);
+    const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    h=`<div class="modal" onclick="if(event.target===this)closeM()">
+      <div class="modal-in">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <button class="hdr-back" onclick="DUP.srcId=null;drawDupForm()" title="Voltar">‹</button>
+          <h2 style="flex:1;margin:0">Duplicar treino</h2>
+        </div>
+        <div style="font-size:13px;color:var(--txt);margin-bottom:14px">${esc(dupLabel(p))}
+          <span style="color:var(--dim)">(original em ${fdate(p.date)}${p.doneId?', já feito':', pendente'})</span></div>
+        <div class="field"><label>Nova data</label>
+          <input type="date" value="${dv}" onchange="dupDate(this.value)"></div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn-ghost" onclick="closeM()">Cancelar</button>
+          <button class="btn-a" onclick="dupSave()">Duplicar</button></div>
+      </div></div>`;
+  }
+  setModalHTML(h);
+}
+window.dupPick=id=>{DUP.srcId=id;DUP.date=Date.now();drawDupForm();};
+window.dupDate=v=>{
+  const [y,m,dd]=v.split('-').map(Number);
+  const o=new Date(DUP.date); o.setFullYear(y,m-1,dd); DUP.date=o.getTime();
+};
+window.dupSave=async()=>{
+  const p=plans().find(x=>x.id===DUP.srcId);
+  if(!p)return closeM();
+  const rec=JSON.parse(JSON.stringify(p));
+  rec.id=uid();
+  rec.date=DUP.date;
+  delete rec.doneId;
+  pushUndo('duplicar treino planejado');
+  S.plans=plans();
+  S.plans.push(rec);
+  await save();closeM();render();toast('Treino duplicado para '+fdate(DUP.date));
 };
 
 /* --- templates de semana --- */

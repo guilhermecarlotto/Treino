@@ -963,9 +963,10 @@ function config(){
   h+=`<div class="mcard" style="cursor:default">
     <span class="mi">☁️</span>
     <span class="mt">Conectado como<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">${esc(window.__cloudEmail||'—')}</div></span>
+    <span class="mv" style="text-align:right;font-size:11px;color:var(--dim)">${S._updatedAt?
+      new Date(S._updatedAt).toLocaleDateString('pt-BR')+'<br>'+new Date(S._updatedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
+      :'—'}</span>
   </div>`;
-  h+=`<button class="mcard" onclick="cloudSignOut()">
-    <span class="mi">🚪</span><span class="mt">Sair da conta</span></button>`;
   h+='<div class="sec-lbl">Registro</div>';
   h+=`<button class="mcard" onclick="openOtherForm()">
     <span class="mi">🧩</span><span class="mt">Registrar treino diferente<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Pra atividades fora do molde padrão (ex.: caminhada) — vira um texto livre no histórico</div></span>
@@ -1000,6 +1001,8 @@ function config(){
   h+=`<button class="mcard" onclick="showDbg()">
     <span class="mi">🔧</span><span class="mt">Diagnóstico<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Registro técnico de erros</div></span>
     <span class="mc">›</span></button>`;
+  h+=`<button class="mcard" onclick="confirmCloudSignOut()" style="margin-top:6px">
+    <span class="mi">🚪</span><span class="mt">Sair da conta</span></button>`;
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
 
@@ -2583,6 +2586,10 @@ window.askDone=v=>{
   document.getElementById('confirm').innerHTML='';
   const r=__confirmResolve; __confirmResolve=null;
   if(r)r(v);
+};
+window.confirmCloudSignOut=async()=>{
+  if(!await ask('Sair da conta?','Você vai precisar entrar de novo com seu e-mail e senha para usar o app.','Sair',true))return;
+  if(window.cloudSignOut)window.cloudSignOut();
 };
 
 /* ---------- CONFIRMAÇÃO DE NOME DE EXERCÍCIO (correção ortográfica) ----------

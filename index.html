@@ -725,16 +725,6 @@ async function load(){
   });
   if(needsSeed)save(); // primeiro login nesse aparelho: sobe a cópia atual pra nuvem
   render();
-  // ---- Planejamento novo deixado pelo planejador do PC (sincronização direta pela nuvem) ----
-  try{
-    if(window.__cloudPullPendingImport){
-      const pending=await window.__cloudPullPendingImport();
-      if(pending){
-        await applyImportedPlanData(pending);
-        if(window.__cloudClearPendingImport)window.__cloudClearPendingImport();
-      }
-    }
-  }catch(e){}
 }
 async function save(){
   S._updatedAt=Date.now();
@@ -761,25 +751,10 @@ function notifications(){
         e seus dados ficam salvos no aparelho.`,
       actionLabel:'Entendi',action:'dismissInstallHint()'});
   }
-  const nReg=S.history.length+runs().length+S.mobility.length;
-  const dsb=daysSinceBackup();
-  if(nReg>0&&dsb>14){
-    list.push({key:'backup',icon:'⚠️',
-      html:`Já fazem <b>${dsb===Infinity?'muitos':dsb} dia(s)</b> sem backup.
-        O app roda direto do arquivo local no seu iPhone, então vale a pena
-        <b onclick="exportData()" style="text-decoration:underline;cursor:pointer">gerar um backup</b>
-        de vez em quando para não correr risco de perder o histórico.`,
-      actionLabel:'Concluído',action:'markBackupDone()'});
-  }
   return list;
 }
 window.dismissInstallHint=async()=>{
   try{localStorage.setItem('hideInstallHint','1');}catch(e){}
-  render();
-};
-window.markBackupDone=async()=>{
-  try{localStorage.setItem('lastBackupAt',String(Date.now()));}catch(e){}
-  toast('Backup marcado como concluído');
   render();
 };
 window.openNotif=()=>{view='notif';render()};
@@ -989,23 +964,16 @@ function config(){
   h+=`<button class="mcard" onclick="openOrder()" ${act.length<2?'disabled style="opacity:.45"':''}>
     <span class="mi">↕</span><span class="mt">Reordenar treinos</span>
     <span class="mv">${act.length<2?'—':act.length+' ativos'}</span><span class="mc">›</span></button>`;
-  h+=`<button class="mcard" onclick="openDel()" ${!S.workouts.length?'disabled style="opacity:.45"':''}>
-    <span class="mi">🗑</span><span class="mt">Excluir treinos<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">O histórico é preservado</div></span>
-    <span class="mc">›</span></button>`;
+  h+=`<div style="font-size:11.5px;color:var(--dim);line-height:1.5;margin:4px 0 2px">
+    Pra excluir um treino específico, use o menu <b style="color:var(--txt)">⋮</b> dele na lista principal.</div>`;
 
-  h+='<div class="sec-lbl">Dados</div>';
-  h+=`<button class="mcard" onclick="mdInfo()">
-    <span class="mi">📄</span><span class="mt">Relatório para IA<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Exporta o histórico em Markdown</div></span>
-    <span class="mc">›</span></button>`;
-  h+=`<button class="mcard" onclick="exportData()">
-    <span class="mi">💾</span><span class="mt">Backup dos dados</span>
-    <span class="mv">${S.history.length+runs().length+S.mobility.length+(S.other||[]).length} registros</span><span class="mc">›</span></button>`;
-  h+=`<button class="mcard" onclick="importPlanOpen()">
-    <span class="mi">📥</span><span class="mt">Importar planejamento (PC)<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Adiciona o plano de corrida feito no computador</div></span>
-    <span class="mc">›</span></button>`;
-  h+=`<button class="mcard" onclick="showDbg()">
-    <span class="mi">🔧</span><span class="mt">Diagnóstico<div style="font-size:11.5px;color:var(--dim);font-weight:600;margin-top:2px">Registro técnico de erros</div></span>
-    <span class="mc">›</span></button>`;
+  h+='<div class="sec-lbl" style="margin-top:26px">Zona de risco</div>';
+  h+=`<div class="card" style="border-color:rgba(224,69,63,.4)">
+    <div style="font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:12px">
+      Apaga <b style="color:var(--txt)">tudo</b>: treinos, sessões de musculação, corridas, mobilidade,
+      planejamentos e metas. O app volta a ficar como se estivesse sendo usado pela primeira vez.</div>
+    <button class="btn-danger" style="width:100%" onclick="resetApp()">🗑 Resetar aplicativo</button>
+  </div>`;
   h+=`<button class="mcard" onclick="confirmCloudSignOut()" style="margin-top:6px">
     <span class="mi">🚪</span><span class="mt">Sair da conta</span></button>`;
   $('app').innerHTML=h;$('fab').innerHTML='';
@@ -1153,7 +1121,7 @@ function drawTabs(){
   const cur=(view==='home'||view==='run'||view==='mob')?'home':
     view==='plan'?'plan':
     (view==='hist'||view==='cal')?'hist':
-    (view==='cfg'||view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'||
+    (view==='cfg'||view==='arc'||view==='order'||view==='goals'||view==='notif'||
       view==='rep'||view==='runrep'||view==='moborep')?'cfg':'';
   const notifN=notifications().length;
   $('tabbar').innerHTML=TABS.map(([v,i,l])=>{
@@ -2719,21 +2687,8 @@ window.onerror=function(msg,src,ln,col){
 window.addEventListener('unhandledrejection',e=>{
   dbg('PROMISE REJEITADA: '+(e.reason&&e.reason.message||e.reason));
 });
-window.showDbg=()=>{
-  document.getElementById('modal').innerHTML=
-    '<div class="modal" onclick="if(event.target===this)closeM()"><div class="modal-in">'+
-    '<h2>Diagnóstico</h2>'+
-    '<div style="font-size:11px;color:var(--dim);margin:-8px 0 10px">'+
-    'Toque nos botões que não funcionam e volte aqui para ver o registro.</div>'+
-    '<pre id="dbgbox" style="font-size:10px;line-height:1.5;white-space:pre-wrap;'+
-    'background:var(--surface2);padding:10px;border-radius:9px;max-height:300px;'+
-    'overflow:auto;font-family:monospace;color:var(--txt)"></pre>'+
-    '<div class="row" style="margin-top:12px">'+
-    '<button class="btn-ghost" onclick="window.__log=[];showDbg()">Limpar</button>'+
-    '<button class="btn-a" onclick="closeM()">Fechar</button></div>'+
-    '</div></div>';
-  dbg('painel aberto');
-};
+// sem tela própria em Ajustes (removida) — o registro continua rodando em segundo plano
+// e pode ser lido a qualquer momento pelo console do navegador com `window.__log`.
 
 /* ---------- DELEGAÇÃO DE EVENTOS ---------- */
 function handleAct(ev){
@@ -4119,6 +4074,7 @@ window.wMenu=id=>{
       <button class="menu-item" onclick="closeM();dupW('${id}')"><span class="ic">⧉</span>Duplicar treino</button>
       <div class="menu-sep"></div>
       <button class="menu-item" onclick="arcW('${id}',true)"><span class="ic">📦</span>Arquivar treino</button>
+      <button class="menu-item danger" onclick="delW('${id}')"><span class="ic">🗑</span>Excluir treino</button>
       <div class="menu-sep"></div>
       <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Cancelar</button>
     </div></div>`;
@@ -4138,6 +4094,7 @@ window.mobWMenu=id=>{
       <button class="menu-item" onclick="closeM();dupMobW('${id}')"><span class="ic">⧉</span>Duplicar treino</button>
       <div class="menu-sep"></div>
       <button class="menu-item" onclick="arcW('${id}',true)"><span class="ic">📦</span>Arquivar treino</button>
+      <button class="menu-item danger" onclick="delW('${id}')"><span class="ic">🗑</span>Excluir treino</button>
       <div class="menu-sep"></div>
       <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Cancelar</button>
     </div></div>`;
@@ -4176,60 +4133,14 @@ window.dupMobW=async id=>{
   await save();render();toast('Treino duplicado');
 };
 
-/* ---------- EXCLUIR TREINOS ---------- */
-window.openDel=()=>{view='del';render()};
-function delScreen(){
-  $('title').textContent='Excluir treinos';
-  $('sub').textContent='Ação permanente';
-  $('back').style.display='block';$('timer').textContent='';
-  const ws=S.workouts;
-  let h='';
-  if(!ws.length){
-    h+='<div class="empty">Nenhum treino cadastrado.</div>';
-  }else{
-    h+=`<div style="font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:14px">
-      Excluir remove o treino da lista e dos relatórios por treino.
-      As sessões já registradas <b style="color:var(--txt)">permanecem no histórico</b>
-      e os exercícios continuam na evolução por exercício.
-      Se quiser apenas tirar da tela principal, use <b style="color:var(--txt)">Arquivar</b>.</div>`;
-    const grp=[['Ativos',ws.filter(w=>!w.archived)],['Arquivados',ws.filter(w=>w.archived)]];
-    grp.forEach(([lbl,list])=>{
-      if(!list.length)return;
-      h+=`<div class="sec-lbl">${lbl}</div>`;
-      list.forEach(w=>{
-        const n=(w.kind==='mobility'?S.mobility:S.history).filter(x=>x.wid===w.id).length;
-        const c=wColor(w);
-        h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c};`:'style="'}display:flex;align-items:center;gap:9px;padding:12px 10px 12px 14px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:15px;font-weight:600">${esc(w.name)}${w.adhoc?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">ESPORÁDICO</span>':''}</div>
-            <div style="font-size:11.5px;color:var(--dim);margin-top:2px">${w.exercises.length} exercícios · ${n} sessão(ões)</div>
-          </div>
-          <button class="btn-ghost btn-sm" style="color:#ff5a5a;flex:none" onclick="delW('${w.id}')">Excluir</button>
-        </div>`;
-      });
-    });
-  }
-  const totalReg=S.workouts.length+S.history.length+runs().length+plans().length+S.mobility.length;
-  h+=`<div class="sec-lbl" style="margin-top:26px">Zona de risco</div>
-    <div class="card" style="border-color:rgba(224,69,63,.4)">
-      <div style="font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:12px">
-        Apaga <b style="color:var(--txt)">tudo</b>: treinos, sessões de musculação, corridas, mobilidade,
-        planejamentos e metas (${totalReg} registro(s) no total). O app volta a ficar como se
-        estivesse sendo usado pela primeira vez. Se ainda não fez backup, gere um antes em
-        <b onclick="exportData()" style="text-decoration:underline;cursor:pointer;color:var(--txt)">Backup dos dados</b>.</div>
-      <button class="btn-danger" style="width:100%" onclick="resetApp()">🗑 Resetar aplicativo</button>
-    </div>`;
-  $('app').innerHTML=h;$('fab').innerHTML='';
-}
 window.resetApp=async()=>{
   const nW=S.workouts.length, nS=S.history.length, nR=runs().length, nP=plans().length, nM=S.mobility.length, nO=(S.other||[]).length;
   const total=nW+nS+nR+nP+nM+nO;
   if(!await ask('Resetar o aplicativo?',
     `Isso apaga PERMANENTEMENTE ${nW} treino(s), ${nS} sessão(ões) de musculação, ${nR} corrida(s), `+
     `${nM} sessão(ões) de mobilidade, ${nO} treino(s) diferente(s) `+
-    `e ${nP} planejamento(s) salvos neste aparelho — ${total} registro(s) no total — além das metas `+
-    `configuradas. O app volta a ficar como recém-instalado.\n\nSe ainda não fez backup, cancele agora `+
-    `e gere um em "Backup dos dados" antes de continuar.`,
+    `e ${nP} planejamento(s) salvos na nuvem — ${total} registro(s) no total — além das metas `+
+    `configuradas. O app volta a ficar como recém-instalado.`,
     'Resetar tudo',true))return;
   if(!await ask('Tem certeza mesmo?',
     'Dá pra reverter usando "Desfazer última alteração" em Configurações, mas só nesta mesma '+
@@ -4237,7 +4148,6 @@ window.resetApp=async()=>{
   pushUndo('resetar o aplicativo');
   S={workouts:[],history:[],runs:[],plans:[],mobility:[],other:[]};
   try{localStorage.removeItem(LS_KEY);}catch(e){}
-  try{localStorage.removeItem('lastBackupAt');}catch(e){}
   try{localStorage.removeItem('hideInstallHint');}catch(e){}
   await save();
   closeM();view='home';render();toast('Aplicativo resetado');
@@ -5733,509 +5643,6 @@ function mobReport(){
   $('fab').innerHTML='';
 }
 
-/* ---------- EXPORTAR MARKDOWN ---------- */
-function buildMD(){
-  const g=goals();
-  const gs=[...S.history].sort((a,b)=>a.date-b.date);
-  const rs=[...runs()].sort((a,b)=>a.date-b.date);
-  const ms=[...S.mobility].sort((a,b)=>a.date-b.date);
-  const os=[...(S.other||[])].sort((a,b)=>a.date-b.date);
-  const all=[...gs.map(x=>({k:'gym',d:x})),...rs.map(x=>({k:'run',d:x})),...ms.map(x=>({k:'mobility',d:x})),
-    ...os.map(x=>({k:'other',d:x}))]
-    .sort((a,b)=>a.d.date-b.d.date);
-  const L=[];
-  const fd=t=>{const d=new Date(t);
-    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} (${DOW[d.getDay()]})`};
-  // sanitiza texto livre (feedback/observação) pra caber numa célula de tabela markdown
-  const mdCell=t=>String(t||'').replace(/\|/g,'/').replace(/\r?\n+/g,'; ').trim();
-
-  L.push('# Registro de treinos');
-  L.push('');
-  L.push(`Exportado em ${fd(Date.now())}. Períodos em dd/mm/aaaa. Pesos em kg, distâncias em km, pace em min/km.`);
-  L.push('');
-  if(all.length){
-    const d0=all[0].d.date, d1=all[all.length-1].d.date;
-    const dias=Math.max(1,Math.round((d1-d0)/86400000));
-    L.push(`**Período coberto:** ${fd(d0)} a ${fd(d1)} (${dias} dias)`);
-  }
-  L.push(`**Metas declaradas:** ${g.week}/semana · ${g.month}/mês · ${g.year}/ano`);
-  L.push(`**Total:** ${gs.length} sessões de musculação · ${rs.length} treinos de corrida · ${ms.length} sessões de mobilidade${os.length?` · ${os.length} treino(s) diferente(s)`:''}`);
-  if(rs.length){
-    const km=rs.reduce((a,r)=>a+r.km,0), sec=rs.reduce((a,r)=>a+r.sec,0);
-    L.push(`**Corrida acumulada:** ${km.toFixed(1)} km em ${fmtDur(sec)} (pace médio ${fmtPace(paceOf(km,sec))}/km)`);
-  }
-  L.push('');
-
-  // --- treinos diferentes: registro de texto livre, fora do molde padrão (ex.: caminhada) ---
-  // seção própria, em destaque, logo no topo — é justamente o tipo de registro que mais
-  // precisa chegar inteiro pra uma IA ler, já que não tem nenhum dado estruturado (só o texto)
-  if(os.length){
-    L.push('## Treinos diferentes');
-    L.push('');
-    L.push('_Atividades que o usuário registrou fora do molde padrão de musculação, corrida ou '+
-      'mobilidade (ex.: caminhada), descritas em texto livre por ele mesmo._ '+
-      '_**Considere esses registros junto com o restante do histórico ao planejar os próximos treinos.**_');
-    L.push('');
-    os.forEach(o=>{
-      L.push(`- **${fd(o.date)} — ${mdCell(o.name||OTHER_DEFAULT_NAME)}:** ${mdCell(o.desc)}`);
-    });
-    L.push('');
-  }
-
-  // --- feedbacks dos treinos: seção própria, em destaque, pra IA não deixar passar ---
-  // (texto livre digitado pelo usuário ao concluir/editar cada treino — não é a
-  // "observação" de planejamento, é o relato de como o treino realmente foi)
-  const withFb=all.filter(it=>{
-    const fb=it.k==='gym'?it.d.feedback:it.k==='run'?it.d.feedback:it.k==='mobility'?it.d.feedback:null;
-    return fb&&String(fb).trim();
-  });
-  if(withFb.length){
-    L.push('## Feedbacks dos treinos');
-    L.push('');
-    L.push('_Relato do próprio usuário sobre como cada treino foi (sensações, dificuldades, ajustes desejados)._ '+
-      '_**Considere esses feedbacks ao analisar o histórico e sugerir os próximos treinos.**_');
-    L.push('');
-    withFb.forEach(it=>{
-      const label=it.k==='run'?`Corrida (${rType(it.d.type)[1]})`:it.k==='mobility'?`Mobilidade (${it.d.name})`:`Musculação (${it.d.name})`;
-      L.push(`- **${fd(it.d.date)} — ${label}:** ${mdCell(it.d.feedback)}`);
-    });
-    L.push('');
-  }
-
-  // --- musculação por exercício ---
-  if(gs.length){
-    L.push('## Musculação — evolução por exercício');
-    L.push('');
-    const names=[...new Set(gs.flatMap(s=>s.exercises.map(e=>e.name)))].sort();
-    names.forEach(n=>{
-      const pts=[];
-      gs.forEach(s=>{
-        const e=s.exercises.find(x=>x.name===n);
-        if(e&&e.sets.length)pts.push({date:s.date,w:s.name,bw:!!e.bw,sets:e.sets});
-      });
-      if(!pts.length)return;
-      const isBW=pts.some(p=>p.bw);
-      L.push(`### ${n}${isBW?' _(peso corporal)_':''}`);
-      L.push('');
-      L.push('| Data | Treino | Séries (reps × kg) | Carga máx | Volume |');
-      L.push('|---|---|---|---|---|');
-      pts.forEach(p=>{
-        const mx=p.sets.reduce((a,s)=>Math.max(a,parseFloat(s.peso)||0),0);
-        const vol=p.sets.reduce((a,s)=>a+(parseFloat(s.reps)||0)*(parseFloat(s.peso)||0),0);
-        L.push(`| ${fd(p.date)} | ${p.w} | ${p.sets.map(s=>p.bw?`${s.reps} reps`:`${s.reps}×${s.peso}`).join(', ')} | ${mx} | ${Math.round(vol)} |`);
-      });
-      if(pts.length>1){
-        const f=pts[0].sets.reduce((a,s)=>Math.max(a,parseFloat(s.peso)||0),0);
-        const l=pts[pts.length-1].sets.reduce((a,s)=>Math.max(a,parseFloat(s.peso)||0),0);
-        const dl=l-f, pc=f?((l-f)/f*100):0;
-        L.push('');
-        L.push(`_Variação da carga máxima: ${f} → ${l} kg (${dl>=0?'+':''}${dl.toFixed(1)} kg, ${pc>=0?'+':''}${pc.toFixed(0)}%) em ${pts.length} sessões._`);
-      }
-      L.push('');
-    });
-  }
-
-  // --- corrida ---
-  if(rs.length){
-    L.push('## Corrida — treinos registrados');
-    L.push('');
-    L.push('| Data | Tipo | Local | Dist. | Tempo | Pace | Esforço | Estrutura |');
-    L.push('|---|---|---|---|---|---|---|---|');
-    rs.forEach(r=>{
-      const t=rType(r.type);
-      let st='—';
-      if(HAS_WU[r.type]){
-        const parts=[];
-        const wk=r.wu?blkKm(r.wu):0, ws=r.wu?blkSec(r.wu):0;
-        const ck=r.cd?blkKm(r.cd):0, cs=r.cd?blkSec(r.cd):0;
-        if(wk||ws)parts.push(`aq ${wk}km/${fmtDur(ws)}`);
-        if(r.type==='inter'&&r.shots){
-          const ss=r.shots.filter(s=>blkKm(s)||blkSec(s));
-          if(ss.length){
-            const same=ss.every(s=>s.km===ss[0].km&&s.m===ss[0].m&&s.s===ss[0].s);
-            parts.push(same?`${ss.length}× ${blkKm(ss[0])}km em ${fmtDur(blkSec(ss[0]))} (${fmtPace(paceOf(blkKm(ss[0]),blkSec(ss[0])))}/km)`
-              :`${ss.length} tiros: ${ss.map(s=>`${blkKm(s)}km/${fmtDur(blkSec(s))}`).join(' + ')}`);
-            const rst=ss.reduce((a,s)=>a+(parseInt(s.rm)||0)*60+(parseInt(s.rs)||0),0);
-            if(rst)parts.push(`desc ${fmtDur(Math.round(rst/ss.length))}`);
-          }
-        }else if(r.type==='fartlek'&&r.fk){
-          parts.push(`${r.reps||1}× (forte ${blkKm(r.fk.on)}km/${fmtDur(blkSec(r.fk.on))} + leve ${blkKm(r.fk.off)}km/${fmtDur(blkSec(r.fk.off))})`);
-        }else if(r.type==='limiar'&&r.fk&&r.fk.on){
-          parts.push(`limiar ${blkKm(r.fk.on)}km em ${fmtDur(blkSec(r.fk.on))} (${fmtPace(paceOf(blkKm(r.fk.on),blkSec(r.fk.on)))}/km)`);
-        }
-        if(ck||cs)parts.push(`desaq ${ck}km/${fmtDur(cs)}`);
-        if(parts.length)st=parts.join(' + ');
-      }
-      const note=r.note?` — ${r.note.replace(/\|/g,'/')}`:'';
-      const lv=runLevel(r), lvLbl=lv?runLvl(lv)[1]:'—';
-      L.push(`| ${fd(r.date)} | ${t[1]} | ${surfOf(r)[1]} | ${r.km.toFixed(2)} | ${fmtDur(r.sec)} | ${fmtPace(paceOf(r.km,r.sec))} | ${lvLbl} | ${st}${note} |`);
-    });
-    L.push('');
-    // volume por semana
-    L.push('### Volume semanal de corrida');
-    L.push('');
-    L.push('| Semana (início) | Treinos | Km | Tempo | Pace médio |');
-    L.push('|---|---|---|---|---|');
-    const wk={};
-    rs.forEach(r=>{
-      const d=new Date(r.date); const dow=(d.getDay()+6)%7;
-      d.setDate(d.getDate()-dow); d.setHours(0,0,0,0);
-      const k=d.getTime();
-      wk[k]=wk[k]||{n:0,km:0,sec:0};
-      wk[k].n++; wk[k].km+=r.km; wk[k].sec+=r.sec;
-    });
-    Object.keys(wk).sort((a,b)=>a-b).forEach(k=>{
-      const v=wk[k];
-      L.push(`| ${fd(+k)} | ${v.n} | ${v.km.toFixed(1)} | ${fmtDur(v.sec)} | ${fmtPace(paceOf(v.km,v.sec))} |`);
-    });
-    L.push('');
-  }
-
-  // --- mobilidade ---
-  if(ms.length){
-    L.push('## Mobilidade — sessões registradas');
-    L.push('');
-    L.push('| Data | Treino | Região | Foco | Exercícios | Duração |');
-    L.push('|---|---|---|---|---|---|');
-    ms.forEach(m=>{
-      const rg=(m.regions&&m.regions.length)?m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', '):'—';
-      const tg=(m.tags&&m.tags.length)?m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', '):'—';
-      L.push(`| ${fd(m.date)} | ${m.name} | ${rg} | ${tg} | ${m.exercises.map(e=>e.name).join(', ')} | ${fmtDur(m.sec)} |`);
-    });
-    L.push('');
-  }
-
-  // --- cronologia unificada ---
-  L.push('## Cronologia completa');
-  L.push('');
-  L.push('| Data | Modalidade | Descrição | Feedback |');
-  L.push('|---|---|---|---|');
-  all.forEach(it=>{
-    if(it.k==='run'){
-      const r=it.d, t=rType(r.type);
-      const lv2=runLevel(r), lv2Lbl=lv2?runLvl(lv2)[1]:'—';
-      L.push(`| ${fd(r.date)} | Corrida | ${t[1]} (${surfOf(r)[1].toLowerCase()}): ${r.km.toFixed(2)} km em ${fmtDur(r.sec)}, pace ${fmtPace(paceOf(r.km,r.sec))}/km, esforço ${lv2Lbl} | ${mdCell(r.feedback)} |`);
-    }else if(it.k==='mobility'){
-      const m=it.d;
-      const rg=(m.regions&&m.regions.length)?' ['+m.regions.map(k=>{const g=mobRegionG(k);return g?g[1]:k}).join(', ')+']':'';
-      const tg=(m.tags&&m.tags.length)?' ['+m.tags.map(k=>{const g=mobTagG(k);return g?g[1]:k}).join(', ')+']':'';
-      L.push(`| ${fd(m.date)} | Mobilidade | ${m.name}${rg}${tg}: ${m.exercises.length} exercícios, ${fmtDur(m.sec)} | ${mdCell(m.feedback)} |`);
-    }else if(it.k==='other'){
-      const o=it.d;
-      L.push(`| ${fd(o.date)} | Diferente | ${mdCell(o.name||OTHER_DEFAULT_NAME)}: ${mdCell(o.desc)} |  |`);
-    }else{
-      const s=it.d;
-      const vol=s.exercises.reduce((a,e)=>a+e.sets.reduce((b,x)=>
-        b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
-      const w=S.workouts.find(x=>x.id===s.wid);
-      const mtag=(s.muscles&&s.muscles.length)?' ['+s.muscles.map(k=>{const g=muscleG(k);return g?g[1]:k}).join(', ')+']':'';
-      const ss=supersetSummary(s.exercises);
-      const sstag=ss.length?' · conjugados: '+ss.map(o=>`${o.l} (${o.names.join(' + ')})`).join('; '):'';
-      L.push(`| ${fd(s.date)} | Musculação | ${s.name}${mtag}${w&&w.adhoc?' (esporádico)':''}: ${s.exercises.length} exercícios, volume ${Math.round(vol)} kg${s.dur?', '+s.dur+' min':''}${sstag} | ${mdCell(s.feedback)} |`);
-    }
-  });
-  L.push('');
-
-  // frequência semanal combinada
-  L.push('## Frequência semanal (musculação + corrida + mobilidade)');
-  L.push('');
-  L.push('| Semana (início) | Musculação | Corrida | Mobilidade | Total | Meta |');
-  L.push('|---|---|---|---|---|---|');
-  const fw={};
-  const add=(ts,key)=>{
-    const d=new Date(ts); const dow=(d.getDay()+6)%7;
-    d.setDate(d.getDate()-dow); d.setHours(0,0,0,0);
-    const k=d.getTime(); fw[k]=fw[k]||{gym:0,run:0,mob:0}; fw[k][key]++;
-  };
-  gs.forEach(s=>add(s.date,'gym'));
-  rs.forEach(r=>add(r.date,'run'));
-  ms.forEach(m=>add(m.date,'mob'));
-  Object.keys(fw).sort((a,b)=>a-b).forEach(k=>{
-    const v=fw[k], tot=v.gym+v.run+v.mob;
-    L.push(`| ${fd(+k)} | ${v.gym} | ${v.run} | ${v.mob} | ${tot} | ${g.week} ${tot>=g.week?'✅':'❌'} |`);
-  });
-  L.push('');
-  L.push('---');
-  L.push('');
-  L.push('_Dados exportados do app pessoal de registro de treinos. Esforço da corrida é classificado pelo teste da fala (Leve/Moderado/Forte/Muito forte). "PC" indica exercício feito com peso corporal. "Conjugados" são exercícios executados em sequência sem descanso entre eles (bi-set/tri-set) — cada um segue registrado separadamente._');
-  return L.join('\n');
-}
-window.exportMD=()=>{
-  if(!S.history.length&&!runs().length&&!S.mobility.length&&!(S.other||[]).length)return toast('Nenhum treino para exportar');
-  try{
-    const md=buildMD();
-    const d=new Date(), p=n=>String(n).padStart(2,'0');
-    const fn=`treinos-relatorio-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.md`;
-    const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download=fn;
-    document.body.appendChild(a);a.click();
-    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},1500);
-    toast('Relatório gerado');
-  }catch(e){toast('Falha ao gerar relatório')}
-};
-window.mdInfo=()=>{
-  const n=S.history.length+runs().length+S.mobility.length+(S.other||[]).length;
-  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
-    <div class="modal-in">
-      <h2>Relatório para IA</h2>
-      <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
-        Gera um arquivo <code>.md</code> com todo o histórico organizado em tabelas:
-        evolução de carga por exercício, treinos de corrida com estrutura completa,
-        volume semanal e frequência versus meta.</p>
-      <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
-        Formato pensado para você colar numa IA e pedir análise de progressão,
-        equilíbrio entre modalidades ou sugestões de periodização.
-        Inclui ${n} registro(s).</p>
-      <button class="btn-a" onclick="closeM();exportMD()">📄 Gerar relatório .md</button>
-      <div class="menu-sep" style="margin:16px 0"></div>
-      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Fechar</button>
-    </div></div>`;
-};
-
-/* ---------- BACKUP ---------- */
-function bkName(){
-  const d=new Date(), p=n=>String(n).padStart(2,'0');
-  // nome identifica que o arquivo foi gerado pelo app (não confundir com o relatório
-  // para IA, que é o único que foge desse padrão — pedido explícito do usuário)
-  return `backup-app-treinos-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.json`;
-}
-window.exportData=()=>{
-  const nS=S.history.length, nR=runs().length, nM=S.mobility.length;
-  const allD=[...S.history.map(h=>h.date),...runs().map(r=>r.date),...S.mobility.map(m=>m.date)];
-  const last=allD.length?fdate(Math.max(...allD)):'—';
-  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
-    <div class="modal-in">
-      <h2>Backup dos dados</h2>
-      <div class="stats" style="margin:0 0 14px">
-        <div class="stat"><b>${nS}</b><span>musculação</span></div>
-        <div class="stat"><b>${nR}</b><span>corridas</span></div>
-        <div class="stat"><b>${nM}</b><span>mobilidade</span></div>
-        <div class="stat" style="font-size:12px"><b style="font-size:13px">${last}</b><span>último</span></div>
-      </div>
-      <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
-        <b style="color:var(--txt)">Salvar:</b> gera um arquivo <code>.json</code>. No iPhone,
-        escolha <b>Salvar em Arquivos</b> → iCloud Drive para ficar sincronizado e protegido.</p>
-      <button class="btn-a" onclick="doExport()">⬇ Salvar arquivo de backup</button>
-      <div class="menu-sep" style="margin:16px 0"></div>
-      <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 12px">
-        <b style="color:#ff5a5a">Restaurar:</b> substitui <b>todos</b> os dados atuais
-        pelos do arquivo. O que não estiver no backup será perdido.</p>
-      <input type="file" id="bkf" accept=".json,application/json" style="display:none"
-        onchange="doImport(this)">
-      <button class="btn-ghost" onclick="document.getElementById('bkf').click()">⬆ Restaurar de arquivo</button>
-      <div class="menu-sep" style="margin:16px 0"></div>
-      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Fechar</button>
-    </div></div>`;
-};
-window.doExport=()=>{
-  try{
-    const payload={_app:'treinos',_v:5,_exportedAt:new Date().toISOString(),
-      workouts:S.workouts,history:S.history,goals:goals(),runs:runs(),plans:plans(),mobility:S.mobility,
-      other:S.other||[]};
-    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download=bkName();
-    document.body.appendChild(a);a.click();
-    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},1500);
-    try{localStorage.setItem('lastBackupAt',String(Date.now()));}catch(e){}
-    toast('Backup gerado');
-  }catch(e){toast('Falha ao gerar arquivo')}
-};
-function daysSinceBackup(){
-  let v=null;
-  try{v=localStorage.getItem('lastBackupAt');}catch(e){}
-  if(!v)return Infinity;
-  return Math.floor((Date.now()-Number(v))/86400000);
-}
-window.doImport=inp=>{
-  const f=inp.files&&inp.files[0];
-  inp.value='';
-  if(!f)return;
-  const r=new FileReader();
-  r.onload=async()=>{
-    let d;
-    try{d=JSON.parse(r.result)}catch(e){return toast('Arquivo inválido')}
-    if(!d||!Array.isArray(d.workouts)||!Array.isArray(d.history))
-      return toast('Não parece um backup de treinos');
-    const when=d._exportedAt?fdate(new Date(d._exportedAt).getTime()):'data desconhecida';
-    const det=`Entrando: ${d.workouts.length} treinos, ${d.history.length} sessões, ${(d.runs||[]).length} corridas, ${(d.mobility||[]).length} mobilidade, ${(d.other||[]).length} diferentes\n`+
-      `Saindo: ${S.workouts.length} treinos, ${S.history.length} sessões, ${runs().length} corridas, ${S.mobility.length} mobilidade, ${(S.other||[]).length} diferentes\n\n`+
-      `Os dados atuais serão substituídos.`;
-    if(!await ask(`Restaurar backup de ${when}?`,det,'Restaurar',true))return;
-    pushUndo('restaurar backup');
-    S={workouts:d.workouts,history:d.history,goals:d.goals||S.goals,
-       runs:Array.isArray(d.runs)?d.runs:[],
-       plans:Array.isArray(d.plans)?d.plans:[],
-       mobility:Array.isArray(d.mobility)?d.mobility:[],
-       other:Array.isArray(d.other)?d.other:[]};
-    await save();closeM();view='home';render();toast('Dados restaurados');
-  };
-  r.onerror=()=>toast('Erro ao ler o arquivo');
-  r.readAsText(f);
-};
-
-/* ---------- IMPORTAR PLANEJAMENTO DO PC (mescla, nao substitui) ---------- */
-window.importPlanOpen=()=>{
-  const nPend=plans().filter(p=>!p.doneId&&p.date>=Date.now()-86400000).length;
-  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
-    <div class="modal-in">
-      <h2>Importar planejamento do PC</h2>
-      <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin:0 0 14px">
-        Selecione o arquivo <code>.json</code> exportado pelo planejador de corrida do computador.
-        Os treinos planejados no arquivo sao <b style="color:var(--txt)">adicionados</b> ao que ja
-        existe aqui, e o que ja foi treinado nunca e apagado. A partir do primeiro dia coberto pelo
-        arquivo, os planos <b style="color:var(--txt)">ainda pendentes</b> que nao vieram nesta
-        importacao sao removidos — ou seja, o arquivo passa a valer como o planejamento oficial dali
-        pra frente. Se reimportar um dia repetido, aquele plano e apenas atualizado (a menos que ja
-        tenha sido concluido, ai ele fica como esta).<br><br>
-        Se o arquivo trouxer treinos de musculacao cadastrados no planejador, eles sao adicionados
-        na aba <b style="color:var(--txt)">Treinos</b> — uma vez so por treino, mesmo que ele
-        esteja planejado em varios dias, e mesmo que ainda nao esteja em nenhum dia. Um treino
-        arquivado no planejador chega arquivado aqui tambem (e vice-versa, na proxima vez que
-        voce exportar um backup daqui pro planejador).</p>
-      <div class="stats" style="margin:0 0 14px">
-        <div class="stat"><b>${plans().length}</b><span>planejados hoje</span></div>
-        <div class="stat"><b>${nPend}</b><span>futuros</span></div>
-      </div>
-      <input type="file" id="planf" accept=".json,application/json" style="display:none"
-        onchange="doImportPlan(this)">
-      <button class="btn-a" onclick="document.getElementById('planf').click()">⬆ Escolher arquivo</button>
-      <div class="menu-sep" style="margin:16px 0"></div>
-      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="closeM()">Fechar</button>
-    </div></div>`;
-};
-window.doImportPlan=inp=>{
-  const f=inp.files&&inp.files[0];
-  inp.value='';
-  if(!f)return;
-  const r=new FileReader();
-  r.onload=()=>{
-    let d;
-    try{d=JSON.parse(r.result);}catch(e){return toast('Arquivo invalido');}
-    applyImportedPlanData(d);
-  };
-  r.onerror=()=>toast('Erro ao ler o arquivo');
-  r.readAsText(f);
-};
-// núcleo do import (compartilhado entre o arquivo .json e a sincronização direta pela nuvem):
-// recebe o objeto já decodificado ({workouts,plans}) e aplica a mesma mesclagem de sempre.
-window.applyImportedPlanData=async(d)=>{
-    const list=Array.isArray(d)?d:(Array.isArray(d&&d.plans)?d.plans:null);
-    if(!list)return toast('Nao parece um arquivo de planejamento de corrida');
-    if(!Array.isArray(S.plans))S.plans=[];
-    if(!Array.isArray(S.workouts))S.workouts=[];
-    // treinos de musculacao cadastrados no planejador do PC. Vem UMA vez so no arquivo,
-    // mesmo que o mesmo treino esteja em varios dias do planejamento: por isso ele aparece
-    // uma vez so aqui na aba Treinos, e cada dia planejado so aponta pra ele pelo `wid`.
-    const wOps=[]; // {mode:'add'|'update', w}
-    (Array.isArray(d&&d.workouts)?d.workouts:[]).forEach(w=>{
-      if(!w||!w.id)return;
-      const name=String(w.name||'').trim();
-      const exs=(Array.isArray(w.exercises)?w.exercises:[])
-        .map(e=>({name:String((e&&e.name)||'').trim(),sets:(e&&e.sets)||'',
-          reps:(e&&e.reps)||'',note:String((e&&e.note)||'').trim(),link:!!(e&&e.link)}))
-        .filter(e=>e.name);
-      if(!name||!exs.length)return;
-      if(exs.length)exs[0].link=false;
-      const archived=!!w.archived;
-      const cur=S.workouts.find(x=>String(x.id)===String(w.id));
-      if(cur)wOps.push({mode:'update',id:cur.id,name,exercises:exs,archived});
-      else wOps.push({mode:'add',id:String(w.id),name,exercises:exs,archived});
-    });
-    const KEEP=['wu','cd','reps','shots','fk','mainKm','mainSec','restSec','targetSec','level','rwMode','rw','rwReps'];
-    const KEEP_GYM=['mode','wid','targets','muscles','exercises'];
-    const KEEP_MOB=['mode','wid','regions','tags','exercises'];
-    // monta a lista de mudancas sem tocar em S.plans ainda (so aplica apos confirmacao)
-    const ops=[]; // {mode:'add'|'update'|'skip'|'invalid', clean, idx}
-    list.forEach(p=>{
-      if(!p||!p.date){ops.push({mode:'invalid'});return;}
-      let clean;
-      if(p.kind==='gym'){
-        const mode=p.mode||(p.wid?'workout':(Array.isArray(p.muscles)&&p.muscles.length?'muscles':'custom'));
-        const okWorkout=mode==='workout'&&p.wid;
-        const okMuscles=mode==='muscles'&&Array.isArray(p.muscles)&&p.muscles.length;
-        const okCustom=mode==='custom'&&Array.isArray(p.exercises)&&p.exercises.length;
-        if(!okWorkout&&!okMuscles&&!okCustom){ops.push({mode:'invalid'});return;}
-        clean={id:(p.id?String(p.id):uid()),kind:'gym',date:Number(p.date),mode,note:(p.note||'').trim()};
-        KEEP_GYM.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
-      }else if(p.kind==='mobility'){
-        const mode=p.mode||(p.wid?'workout':(((Array.isArray(p.regions)&&p.regions.length)||(Array.isArray(p.tags)&&p.tags.length))?'regions':'custom'));
-        const okWorkout=mode==='workout'&&p.wid;
-        const okRegions=mode==='regions'&&((Array.isArray(p.regions)&&p.regions.length)||(Array.isArray(p.tags)&&p.tags.length));
-        const okCustom=mode==='custom'&&Array.isArray(p.exercises)&&p.exercises.length;
-        if(!okWorkout&&!okRegions&&!okCustom){ops.push({mode:'invalid'});return;}
-        clean={id:(p.id?String(p.id):uid()),kind:'mobility',date:Number(p.date),mode,note:(p.note||'').trim()};
-        KEEP_MOB.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
-      }else{
-        if(!p.type||!RUN_TYPES.some(t=>t[0]===p.type)){ops.push({mode:'invalid'});return;}
-        clean={id:(p.id?String(p.id):uid()),kind:'run',date:Number(p.date),
-          type:p.type,km:Number(String(p.km).replace(',','.'))||0,note:(p.note||'').trim()};
-        KEEP.forEach(k=>{if(p[k]!==undefined)clean[k]=p[k];});
-      }
-      const idx=S.plans.findIndex(x=>x.id===clean.id);
-      if(idx>=0){
-        if(S.plans[idx].doneId){ops.push({mode:'skip'});return;}
-        clean.doneId=S.plans[idx].doneId;
-        ops.push({mode:'update',clean});
-      }else{
-        ops.push({mode:'add',clean});
-      }
-    });
-    // o planejamento importado passa a "valer" a partir do dia mais cedo que ele cobre:
-    // qualquer plano pendente do app (ainda nao concluido) dentro dessa mesma janela que
-    // NAO veio no arquivo e considerado desatualizado (foi removido/trocado no PC) e e
-    // apagado daqui, pra nao ficar uma mistura do planejamento antigo com o novo
-    const validCleans=ops.filter(o=>o.clean).map(o=>o.clean);
-    let stale=[];
-    if(validCleans.length){
-      const minDate=Math.min(...validCleans.map(c=>c.date));
-      const importedIds=new Set(validCleans.map(c=>c.id));
-      stale=S.plans.filter(p=>!p.doneId&&p.date>=minDate&&!importedIds.has(p.id));
-    }
-    const added=ops.filter(o=>o.mode==='add').length;
-    const updated=ops.filter(o=>o.mode==='update').length;
-    const skipped=ops.filter(o=>o.mode==='skip').length;
-    const invalid=ops.filter(o=>o.mode==='invalid').length;
-    const wAdd=wOps.filter(o=>o.mode==='add').length;
-    const wUpd=wOps.filter(o=>o.mode==='update').length;
-    if(!added&&!updated&&!wAdd&&!wUpd){
-      return toast(skipped?`Nada novo — ${skipped} ja concluido(s)`:'Nenhum plano valido no arquivo');
-    }
-    const det=(wAdd||wUpd?`Treinos novos na aba Treinos: ${wAdd}`+
-        (wUpd?`\nTreinos atualizados: ${wUpd}`:'')+`\n\n`:'')+
-      `Adicionados: ${added}\nAtualizados: ${updated}`+
-      (stale.length?`\nRemovidos (fora do novo planejamento): ${stale.length}`:'')+
-      `\nIgnorados (ja concluidos): ${skipped}`+
-      (invalid?`\nInvalidos ignorados: ${invalid}`:'');
-    if(!await ask('Importar planejamento?',det,'Importar',false))return; // cancelado: nada foi tocado
-    pushUndo('importar planejamento do PC');
-    // treinos primeiro, pra que os planos que apontam pra eles (wid) ja encontrem o treino
-    wOps.forEach(o=>{
-      if(o.mode==='add'){
-        S.workouts.push({id:o.id,name:o.name,exercises:o.exercises,muscles:[],archived:o.archived,fromPC:true});
-      }else{
-        const w=S.workouts.find(x=>x.id===o.id);
-        // sincroniza tambem o estado arquivado (aposentado/reativado no planejador do PC)
-        if(w){w.name=o.name;w.exercises=o.exercises;w.archived=o.archived;}
-      }
-    });
-    if(stale.length){
-      const staleIds=new Set(stale.map(p=>p.id));
-      S.plans=S.plans.filter(p=>!staleIds.has(p.id));
-    }
-    ops.forEach(o=>{
-      if(o.mode==='add')S.plans.push(o.clean);
-      else if(o.mode==='update'){
-        const idx=S.plans.findIndex(x=>x.id===o.clean.id);
-        if(idx>=0)S.plans[idx]=o.clean; else S.plans.push(o.clean);
-      }
-    });
-    await save();closeM();plRef=null;view='plan';render();toast('Planejamento importado');
-};
-
 /* ---------- ROUTER ---------- */
 function render(){
   if(view==='session'&&cur)session();
@@ -6248,7 +5655,6 @@ function render(){
   else if(view==='mob')mobHome();
   else if(view==='arc')archived();
   else if(view==='order')order();
-  else if(view==='del')delScreen();
   else if(view==='goals')goalsScreen();
   else if(view==='plan')planScreen();
   else if(view==='notif')notifScreen();
@@ -6271,7 +5677,7 @@ $('back').onclick=async()=>{
     clearInterval(tickM);
     await cleanupAdhoc();
     view='mob';
-  }else if(view==='arc'||view==='order'||view==='del'||view==='goals'||view==='notif'||
+  }else if(view==='arc'||view==='order'||view==='goals'||view==='notif'||
     view==='rep'||view==='runrep'||view==='moborep'){
     view='cfg';
   }else if(view==='cal'){
@@ -6297,7 +5703,7 @@ if('serviceWorker' in navigator){
     signInWithEmailAndPassword, sendPasswordResetEmail, signOut
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
   import {
-    getFirestore, doc, getDoc, setDoc, deleteDoc, enableIndexedDbPersistence
+    getFirestore, doc, getDoc, setDoc, enableIndexedDbPersistence
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -6315,25 +5721,9 @@ if('serviceWorker' in navigator){
   try{ await enableIndexedDbPersistence(db); }catch(e){ /* várias abas abertas ou navegador sem suporte — segue sem isso */ }
   try{ await setPersistence(auth, browserLocalPersistence); }catch(e){}
 
+  // documento único, compartilhado com o planejador do PC: os dois leem e gravam
+  // direto aqui (mesmo objeto S inteiro) — não existe mais mailbox/importação.
   const cloudDocRef = (uid) => doc(db, 'users', uid, 'data', 'main');
-  // documento "caixa de entrada": o planejador do PC deixa aqui o planejamento novo, e o
-  // app do celular consome (aplica e apaga) na próxima vez que abrir — é a sincronização
-  // direta que substitui o exportar/importar manual do arquivo .json.
-  const pendingImportRef = (uid) => doc(db, 'users', uid, 'data', 'pendingPlanImport');
-
-  window.__cloudPullPendingImport = async function(){
-    const user = auth.currentUser;
-    if(!user) return null;
-    try{
-      const snap = await getDoc(pendingImportRef(user.uid));
-      return snap.exists() ? snap.data() : null;
-    }catch(e){ return null; }
-  };
-  window.__cloudClearPendingImport = async function(){
-    const user = auth.currentUser;
-    if(!user) return;
-    try{ await deleteDoc(pendingImportRef(user.uid)); }catch(e){}
-  };
 
   window.__cloudLoad = async function(){
     const user = auth.currentUser;

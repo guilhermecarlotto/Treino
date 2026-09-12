@@ -3560,13 +3560,16 @@ function drawGymPlanForm(){
   h+=`<div class="field"><label>Instruções gerais</label>
         <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>`;
   // igual ao "✓ Feito" da corrida: em vez de só editar o alvo, dá pra ir direto pra sessão de
-  // verdade — só faz sentido pra um plano de treino salvo já existente (qualquer data: passado
-  // pendente, hoje ou futuro — pedido explícito do usuário pra treinos importados do PC, que
-  // chegam registrados só no plano). A sessão nasce com a data de HOJE (pfStartGym→openW já faz
-  // isso) mas continua vinculada a este plano original, que fica marcado como feito ao salvar.
-  if(PF.id&&PF.mode==='workout'&&PF.wid){
+  // verdade — pedido explícito do usuário (set/2026) pra treinos importados do PC que ficam
+  // registrados só no plano. Só faz sentido no modo PERSONALIZADO: é o único modo em que a
+  // lista de exercícios vive só ali dentro do plano (nos outros dois — "Treino salvo" aponta
+  // pra um treino que já dá pra abrir e rodar normalmente pela aba Treinos, e "Grupos" nem tem
+  // exercícios definidos ainda). Vale pra qualquer data (passado pendente, hoje ou futuro) — a
+  // sessão nasce com a data de HOJE (pfStartCustom→openW já faz isso) mas continua vinculada a
+  // este plano original, que fica marcado como feito ao salvar.
+  if(PF.id&&PF.mode==='custom'&&(PF.exercises||[]).some(e=>(e.name||'').trim())){
     h+=`<button class="btn-ghost btn-sm" style="width:100%;color:var(--accent2);border:1px solid rgba(61,220,151,.35);margin-bottom:10px"
-      onclick="pfStartGym()">▶ Executar</button>`;
+      onclick="pfStartCustom()">▶ Executar</button>`;
   }
   h+=`<div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
@@ -3837,15 +3840,23 @@ window.pfDone=()=>{
   syncShots();
   drawRunForm();
 };
-// "▶ Iniciar este treino agora" (musculação): sai do formulário de plano e abre a
-// sessão de verdade direto, o mesmo caminho de tocar no treino na aba Treinos —
-// já chega vinculada a este plano (matchPlan não precisa adivinhar)
-window.pfStartGym=()=>{
-  if(!PF.wid)return;
+// "▶ Executar" (musculação, modo Personalizado): sai do formulário de plano e abre
+// uma sessão de verdade direto, sem precisar cadastrar um treino antes — cria um
+// treino "esporádico" nos bastidores (mesmo conceito já usado pro botão "⚡ Treino
+// esporádico" do cadastro manual: some da lista sozinho se a sessão for abandonada
+// sem preencher nada, via cleanupAdhoc; se for concluída, fica arquivado automático)
+// com os exercícios exatamente como estão no plano, e abre a sessão nele — já
+// vinculada a este plano (matchPlan não precisa adivinhar).
+window.pfStartCustom=()=>{
+  const exs=(PF.exercises||[]).filter(e=>(e.name||'').trim());
+  if(!exs.length)return toast('Preencha ao menos um exercício');
   const plan=PF.id?plans().find(x=>x.id===PF.id):null;
-  const wid=PF.wid;
+  const wk={id:uid(),name:(PF.note||'').trim()||'Treino personalizado',
+    exercises:exs.map(e=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:false})),
+    adhoc:true,archived:false};
+  S.workouts.push(wk);
   PF=null;closeM();
-  openW(wid,plan);
+  openW(wk.id,plan);
 };
 // mobilidade não tem planId explícito na sessão (finishMob vincula por matchPlan
 // olhando data+wid), então só precisa abrir o treino mesmo

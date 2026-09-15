@@ -15,13 +15,13 @@
 <title>Treinos</title>
 <style>
 :root{
-  --bg:#0e0f13; --surface:#171922; --surface2:#1f2230; --line:#2a2e3d;
+  --bg:#0e0f13; --surface:#171922; --surface2:#1f2230; --surface3:#262a3a; --line:#2a2e3d;
   --txt:#eef0f6; --dim:#8b90a3; --accent:#ff6b35; --accent2:#3ddc97;
   --bg-blur:rgba(14,15,19,.92); --surface-blur:rgba(23,25,34,.96);
   --radius:14px; color-scheme:dark;
 }
 html.light{
-  --bg:#f4f5f8; --surface:#ffffff; --surface2:#eef0f5; --line:#e0e3ec;
+  --bg:#f4f5f8; --surface:#ffffff; --surface2:#eef0f5; --surface3:#ffffff; --line:#e0e3ec;
   --txt:#1a1c24; --dim:#666c80;
   --bg-blur:rgba(244,245,248,.92); --surface-blur:rgba(255,255,255,.96);
   color-scheme:light;
@@ -85,7 +85,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   box-shadow:0 10px 24px rgba(0,0,0,.4);overflow:hidden;z-index:80;
   max-height:210px;overflow-y:auto}
 .ex-sug.on{display:block}
-.ex-sug button{display:block;width:100%;text-align:left;background:transparent;
+.ex-sug button{display:block;width:100%;text-align:left;background:var(--surface3);
   border:none;border-bottom:1px solid var(--line);color:var(--txt);
   font-size:13px;padding:9px 12px}
 .ex-sug button:last-child{border-bottom:none}
@@ -2070,6 +2070,7 @@ window.delRun=async id=>{
   if(!await ask('Excluir registro?','Este treino de corrida será removido do histórico.','Excluir',true))return;
   pushUndo('excluir corrida');
   S.runs=runs().filter(x=>x.id!==id);
+  unlinkPlanDone(id);
   await save();RF=null;closeM();render();toast('Registro excluído');
 };
 window.runMenu=id=>{
@@ -2778,6 +2779,12 @@ function weekDone(ws){
   const a=ws, b=ws+7*86400000;
   return{runs:runs().filter(r=>r.date>=a&&r.date<b),
          gym:S.history.filter(h=>h.date>=a&&h.date<b)};
+}
+// solta o vínculo de qualquer plano que apontava pro registro excluído (senão o plano
+// ficava "preso" como feito, sem nenhum registro real por trás, ao excluir a sessão
+// direto pelo histórico em vez de desmarcar pelo próprio plano)
+function unlinkPlanDone(id){
+  (S.plans||[]).forEach(p=>{ if(p.doneId===id)p.doneId=null; });
 }
 // marca plano como cumprido ao salvar um registro
 function matchPlan(kind,date,extra){
@@ -5269,12 +5276,16 @@ function hist(){
 window.delH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
   pushUndo('excluir sessão de musculação');
-  S.history=S.history.filter(x=>x.id!==id);await save();render();
+  S.history=S.history.filter(x=>x.id!==id);
+  unlinkPlanDone(id);
+  await save();render();
 };
 window.delMobH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
   pushUndo('excluir sessão de mobilidade');
-  S.mobility=S.mobility.filter(x=>x.id!==id);await save();render();
+  S.mobility=S.mobility.filter(x=>x.id!==id);
+  unlinkPlanDone(id);
+  await save();render();
 };
 /* ---------- EDITAR SESSÃO DO HISTÓRICO (data + exercícios + séries) ---------- */
 window.editHist=id=>{

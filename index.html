@@ -737,6 +737,43 @@ async function save(){
   return ok;
 }
 
+/* ---------- ESPAÇO USADO NA NUVEM ----------
+   O "payload" é exatamente a string que vai pro Firestore (o JSON.stringify(S) de save(),
+   acima) — um documento só, com o limite de 1 MiB (1.048.576 bytes) do Firestore. Calculado
+   sob demanda (não fica um listener vivo): toda vez que a tela de Configurações é desenhada,
+   ela já reflete o estado mais atual de S — ou seja, atualiza sozinha a cada nova leitura da
+   nuvem (load) e a cada novo save(), sem precisar de nenhum código extra pra "avisar" a barra. */
+const FIRESTORE_DOC_LIMIT=1048576; // 1 MiB — limite por documento do Firestore
+function utf8ByteLength(str){
+  // string.length conta "caracteres" (UTF-16), não bytes — com acentos/emojis isso subestima
+  // o tamanho real. Este truque clássico (encodeURIComponent + unescape) devolve o total real
+  // de bytes em UTF-8, que é o que o Firestore de fato conta.
+  try{return unescape(encodeURIComponent(str)).length;}
+  catch(e){return str.length;}
+}
+function cloudStorageInfo(){
+  const bytes=utf8ByteLength(JSON.stringify(S));
+  return {bytes,limit:FIRESTORE_DOC_LIMIT,pct:Math.min(100,(bytes/FIRESTORE_DOC_LIMIT)*100)};
+}
+function fmtBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(0)+' KB';
+  return (n/(1024*1024)).toFixed(2)+' MB';
+}
+function cloudStorageBarHTML(){
+  const st=cloudStorageInfo();
+  const col=st.pct>=90?'#e0453f':st.pct>=70?'#ffb020':'var(--accent2)';
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px">
+      <span style="color:var(--txt);font-weight:600">${fmtBytes(st.bytes)} de ${fmtBytes(st.limit)} usados</span>
+      <span style="color:var(--dim)">${st.pct.toFixed(1)}%</span></div>
+    <div style="height:7px;background:var(--surface2);border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${st.pct}%;background:${col};border-radius:4px"></div></div>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:6px">
+      ${fmtBytes(Math.max(0,st.limit-st.bytes))} livres · espaço do backup na nuvem (documento único no Firestore)</div>
+  </div>`;
+}
+
 /* ---------- NOTIFICAÇÕES ---------- */
 function notifications(){
   const list=[];
@@ -932,6 +969,7 @@ function config(){
       new Date(S._updatedAt).toLocaleDateString('pt-BR')+'<br>'+new Date(S._updatedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
       :'—'}</span>
   </div>`;
+  h+=cloudStorageBarHTML();
   h+='<div class="sec-lbl">Notificações</div>';
   h+=`<button class="mcard" onclick="openNotif()">
     <span class="mi">🔔</span><span class="mt">Notificações</span>

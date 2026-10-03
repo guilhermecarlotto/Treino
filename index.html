@@ -4586,6 +4586,8 @@ function session(){
           onchange="setV(${i},${j},'peso',this.value)">
         <button class="del" onclick="rmSet(${i},${j})">✕</button></div>`;
     });
+    h+=`<textarea rows="2" style="margin-top:8px;font-size:13px" placeholder="💬 Feedback deste exercício (opcional)"
+      oninput="live.exercises[${i}].fb=this.value">${esc(ex.fb||'')}</textarea>`;
     h+='</div></div>';
     if(g&&g.last)h+='</div>';
   });
@@ -4784,6 +4786,7 @@ window.finish=async()=>{
   const ex=kept.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
     link:n>0&&!!x.e.link&&keptIdx.has(x.idx-1),
     swapped:!!x.e.swapped,
+    ...((x.e.fb||'').trim()?{fb:x.e.fb.trim()}:{}),
     sets:x.sets}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
@@ -4996,6 +4999,7 @@ function hist(){
       s.exercises.forEach((e,ei)=>{
         h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
           <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
+        if(e.fb)h+=`<div style="font-size:12px;color:var(--dim);line-height:1.45;margin:-2px 0 6px 2px;font-style:italic">💬 ${esc(e.fb)}</div>`;
       });
       h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
       h+=fbBox(s.feedback);
@@ -5028,7 +5032,7 @@ window.editHist=id=>{
   window.__ehId=id;
   window.__ehDate=s.date;
   window.__ehFeedback=s.feedback||'';
-  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,link:!!e.link,
+  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,link:!!e.link,swapped:!!e.swapped,fb:e.fb||'',
     sets:e.sets.map(st=>({reps:st.reps,peso:st.peso}))}));
   drawEditHist();
 };
@@ -5063,6 +5067,8 @@ function drawEditHist(){
           <input type="number" inputmode="decimal" step="0.5" value="${esc(st.peso)}"
             placeholder="${ex.bw?'—':'–'}" ${ex.bw?'disabled':''} oninput="ehVal(${i},${j},'peso',this.value)">
           <button class="del" onclick="ehRmSet(${i},${j})">✕</button></div>`).join('')}
+        <textarea rows="2" style="margin-top:8px;font-size:13px" placeholder="💬 Feedback deste exercício (opcional)"
+          oninput="window.__ehExs[${i}].fb=this.value">${esc(ex.fb||'')}</textarea>
       </div></div>`;
   });
   h+=`<div class="field"><label>Feedback do treino</label>
@@ -5108,7 +5114,8 @@ window.saveEditHist=async()=>{
     sets:e.sets.filter(st=>st.reps!==''||st.peso!=='')})).filter(x=>x.sets.length);
   const keptEi=new Set(keptE.map(x=>x.idx));
   const exs=keptE.map((x,n)=>({name:(x.e.name||'').trim()||'Exercício',bw:!!x.e.bw,
-    link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),sets:x.sets}));
+    link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),
+    ...(x.e.swapped?{swapped:true}:{}),...((x.e.fb||'').trim()?{fb:x.e.fb.trim()}:{}),sets:x.sets}));
   if(!exs.length)return toast('Mantenha ao menos uma série preenchida');
   pushUndo('editar sessão do histórico');
   s.date=window.__ehDate;

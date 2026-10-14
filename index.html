@@ -710,6 +710,39 @@ const toast=m=>{const t=$('toast');t.textContent=m;t.classList.add('on');
 const fbBox=fb=>fb?`<div style="background:rgba(91,141,239,.1);border:1px solid rgba(91,141,239,.35);
   border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--txt);line-height:1.6;margin-top:10px">
   <b style="color:#5b8def">FEEDBACK</b><br>${esc(fb)}</div>`:'';
+/* equipamento do exercício de musculação: eq = 'bw' (peso corporal) | 'barra' | 'halteres' | ''
+   (não informado). `bw` continua existindo (= eq==='bw') pra não quebrar registros antigos,
+   gráficos e o planejador. */
+const EQS=[['bw','🧍','Peso corporal','Só repetições, sem carga'],
+  ['barra','🏋️','Barra',''],['halteres','💪','Halteres',''],['','⚙️','Outro / não informar','Máquina, polia etc.']];
+const eqOf=e=>(e&&(e.eq||(e.bw?'bw':'')))||'';
+const eqShort=k=>k==='bw'?'PC':k==='barra'?'Barra':k==='halteres'?'Halteres':'';
+const eqTag=e=>{const k=eqOf(e);return k?`<span class="tag-pc">${eqShort(k).toUpperCase()}</span>`:'';};
+const eqBtn=(e,fn)=>{const k=eqOf(e);
+  return `<button class="btn-sm ${k?'':'btn-ghost'}" style="${k?'background:rgba(var(--acc-rgb),.15);color:var(--accent)':''}" onclick="${fn}" title="Equipamento do exercício">${k?eqShort(k):'⚙️ Equip.'}</button>`;};
+// escolha do equipamento. mode 'live' = sessão em andamento; 'eh' = edição de sessão do histórico
+window.openEq=(i,mode)=>{
+  const e=mode==='eh'?window.__ehExs[i]:live.exercises[i];
+  const cur=eqOf(e);
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)eqClose('${mode}')">
+    <div class="modal-in">
+      <h2>Equipamento</h2>
+      <div style="font-size:12.5px;color:var(--dim);margin:-6px 0 14px">${esc(e.name||'Exercício')}</div>
+      ${EQS.map(q=>`<button class="menu-item" onclick="eqPick(${i},'${mode}','${q[0]}')">
+        <span class="ic">${q[1]}</span><span style="flex:1">${q[2]}${q[3]?`<div style="font-size:11.5px;color:var(--dim);font-weight:600">${q[3]}</div>`:''}</span>
+        ${q[0]===cur?'<span style="color:var(--accent);font-weight:800">✓</span>':''}</button>`).join('')}
+      <div class="menu-sep"></div>
+      <button class="menu-item" style="justify-content:center;color:var(--dim)" onclick="eqClose('${mode}')">Cancelar</button>
+    </div></div>`;
+};
+window.eqClose=mode=>{ if(mode==='eh')drawEditHist(); else closeM(); };
+window.eqPick=(i,mode,k)=>{
+  const e=mode==='eh'?window.__ehExs[i]:live.exercises[i];
+  e.eq=k; e.bw=(k==='bw');
+  // peso corporal: a carga não importa, só reps — limpa o que já tinha
+  if(e.bw)e.sets.forEach(s=>{s.peso=''});
+  if(mode==='eh')drawEditHist(); else{closeM();render();}
+};
 const fmtSet=(reps,peso,bw)=>bw?(esc(reps)+' reps'):(esc(reps)+'×'+esc(peso));
 
 const DOW=['dom','seg','ter','qua','qui','sex','sáb'];
@@ -830,7 +863,7 @@ function prevSets(wid,exName){
   S.history.forEach(s=>{
     const e=s.exercises.find(x=>x.name===exName);
     if(e&&e.sets.length&&(!best||s.date>best.date))
-      best={date:s.date,wid:s.wid,wname:s.name,sets:e.sets,bw:!!e.bw};
+      best={date:s.date,wid:s.wid,wname:s.name,sets:e.sets,bw:!!e.bw,eq:eqOf(e)};
   });
   return best;
 }
@@ -2190,7 +2223,7 @@ function calendar(){
             ${musclesPillHTML(s.muscles)}
             ${(()=>{const cg=exGroups(s.exercises);
               return s.exercises.map((x,xi)=>`<div class="hist-row">
-              <span style="color:var(--txt)">${grpTag(cg[xi])}${esc(x.name)}${x.bw?'<span class="tag-pc">PC</span>':''}</span>
+              <span style="color:var(--txt)">${grpTag(cg[xi])}${esc(x.name)}${eqTag(x)}</span>
               <span>${x.sets.map(z=>fmtSet(z.reps,z.peso,x.bw)).join(' · ')}</span></div>`).join('')})()}
             <div class="hist-row"><span>Volume total</span>
               <span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div></div>`;
@@ -2304,10 +2337,20 @@ function handleAct(ev){
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
 }
 document.addEventListener('click',handleAct,true);
+// só vale como toque se o dedo não andou: arrastar pra rolar a lista (ex.: trocar exercício)
+// não pode selecionar o item em que o dedo encostou
+let _tapStart=null;
+document.addEventListener('touchstart',function(ev){
+  const p=ev.touches&&ev.touches[0];
+  _tapStart=p?{x:p.clientX,y:p.clientY,t:Date.now()}:null;
+},{passive:true,capture:true});
 document.addEventListener('touchend',function(ev){
   const t=ev.target;
   const el=t&&t.closest?t.closest('[data-act]'):null;
-  if(el){ ev.preventDefault(); handleAct(ev); }
+  if(!el)return;
+  const p=ev.changedTouches&&ev.changedTouches[0];
+  if(_tapStart&&p&&(Math.abs(p.clientX-_tapStart.x)>10||Math.abs(p.clientY-_tapStart.y)>10))return; // foi rolagem
+  ev.preventDefault(); handleAct(ev);
 },{passive:false,capture:true});
 
 // exclusão direta, sem depender de PF nem de modal aberto
@@ -4493,7 +4536,7 @@ window.openW=(id,plan)=>{
       const p=prevSets(id,e.name);
       const tg=liveTargets[e.name];
       const n=tg&&parseInt(tg.sets)?parseInt(tg.sets):(p?p.sets.length:3);
-      return{name:e.name,bw:p?!!p.bw:false,link:!!e.link,
+      return{name:e.name,bw:p?!!p.bw:false,eq:p?p.eq:'',link:!!e.link,
         sets:Array.from({length:n},()=>({reps:'',peso:''}))};
     })};
   if(live.exercises.length)live.exercises[0].link=false;
@@ -4546,8 +4589,7 @@ function session(){
     h+=`<div class="ex-block">
       <div class="ex-head"><strong>${grpTag(g)}${esc(ex.name)}${ex.temp?'<span class="tag-pc" style="background:rgba(139,144,163,.18);color:var(--dim)">SÓ HOJE</span>':''}${ex.swapped?'<span class="tag-pc" style="background:rgba(91,141,239,.18);color:#5b8def">TROCADO</span>':''}</strong>
         <div style="display:flex;align-items:center;gap:10px">
-        <label class="bw-tog ${ex.bw?'on':''}">
-          <input type="checkbox" ${ex.bw?'checked':''} onchange="setBW(${i},this.checked)">PC</label>
+        ${eqBtn(ex,`openEq(${i},'live')`)}
         <button class="btn-sm btn-ghost" onclick="openSwapEx(${i})" title="Trocar exercício (só neste treino)">🔁</button>
         <button class="btn-sm btn-ghost" onclick="addSet(${i})">+ série</button></div></div>
       <div class="ex-body">`;
@@ -4555,7 +4597,7 @@ function session(){
       const sameW=p.wid===live.wid;
       const dias=Math.round((Date.now()-p.date)/86400000);
       const quando=dias===0?'hoje':dias===1?'ontem':`há ${dias} dias`;
-      h+='<div class="prev">Última vez'+(p.bw?' <span class="tag-pc">PESO CORPORAL</span>':'')+': '+
+      h+='<div class="prev">Última vez'+(p.eq?` <span class="tag-pc">${p.eq==='bw'?'PESO CORPORAL':eqShort(p.eq).toUpperCase()}</span>`:'')+': '+
         p.sets.map((s,n)=>`<span class="pill">${n+1}ª <b>${p.bw?esc(s.reps)+' reps':esc(s.reps)+'×'+esc(s.peso)+'kg'}</b></span>`).join('')+
         `<div style="margin-top:5px;font-size:11px;opacity:.8">${quando}${sameW?'':' · em '+esc(p.wname)}</div></div>`;
     }else{
@@ -4671,7 +4713,7 @@ window.confirmAddEx=async()=>{
   const sets=window.__newEx.sets, reps=window.__newEx.reps, note=(window.__newEx.note||'').trim();
   const once=window.__newExOnce;
   const n=parseInt(sets)||3;
-  live.exercises.push({name,bw:false,sets:Array.from({length:n},()=>({reps:'',peso:''})),temp:once});
+  live.exercises.push({name,bw:false,eq:'',sets:Array.from({length:n},()=>({reps:'',peso:''})),temp:once});
   if(live.targets&&(sets||reps||note))live.targets[name]={sets:sets||'',reps:reps||'',note};
   if(!once){
     cur.exercises.push({name,sets:sets||'',reps:reps||'',note});
@@ -4783,7 +4825,7 @@ window.finish=async()=>{
   const kept=live.exercises.map((e,idx)=>({e,idx,
     sets:e.sets.filter(s=>s.reps!==''||s.peso!=='')})).filter(x=>x.sets.length);
   const keptIdx=new Set(kept.map(x=>x.idx));
-  const ex=kept.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,
+  const ex=kept.map((x,n)=>({name:x.e.name,bw:!!x.e.bw,...(eqOf(x.e)?{eq:eqOf(x.e)}:{}),
     link:n>0&&!!x.e.link&&keptIdx.has(x.idx-1),
     swapped:!!x.e.swapped,
     ...((x.e.fb||'').trim()?{fb:x.e.fb.trim()}:{}),
@@ -4997,13 +5039,14 @@ function hist(){
       h+=musclesPillHTML(s.muscles);
       const hg=exGroups(s.exercises);
       s.exercises.forEach((e,ei)=>{
-        h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${e.bw?'<span class="tag-pc">PC</span>':''}</span>
+        h+=`<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${eqTag(e)}</span>
           <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`;
         if(e.fb)h+=`<div style="font-size:12px;color:var(--dim);line-height:1.45;margin:-2px 0 6px 2px;font-style:italic">💬 ${esc(e.fb)}</div>`;
       });
       h+=`<div class="hist-row"><span>Volume total</span><span><b style="color:var(--accent2)">${Math.round(vol)} kg</b></span></div>`;
       h+=fbBox(s.feedback);
       h+=`<div class="row" style="margin-top:10px">
+        <button class="btn-g btn-sm" onclick="event.stopPropagation();redoHist('${s.id}')">↻ Refazer</button>
         <button class="btn-ghost btn-sm" onclick="event.stopPropagation();editHist('${s.id}')">✎ Editar treino</button>
         <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="event.stopPropagation();delH('${s.id}')">Excluir sessão</button>
       </div>`;
@@ -5012,6 +5055,23 @@ function hist(){
   });
   $('app').innerHTML=h;$('fab').innerHTML='';
 }
+// refazer: abre uma NOVA sessão (hoje) com os mesmos exercícios, ordem, conjugações e nº de
+// séries da sessão do histórico, com as séries vazias. A sessão original não é alterada.
+window.redoHist=async id=>{
+  const s=S.history.find(x=>x.id===id); if(!s)return;
+  if(!await ask('Refazer este treino?',`Abre uma nova sessão de "${s.name}" para hoje, com os mesmos exercícios. A sessão original continua no histórico.`,'Refazer',false))return;
+  const w=S.workouts.find(x=>x.id===s.wid);
+  if(w){
+    openW(w.id);
+  }else{ // o treino salvo foi excluído: monta a sessão só com o que está no histórico
+    cur={id:s.wid,name:s.name,exercises:[],muscles:s.muscles||[]};
+    live={wid:s.wid,name:s.name,date:Date.now(),planId:null,targets:{},feedback:'',exercises:[]};
+    ordMode=false;t0=Date.now();clearInterval(tick);view='session';
+  }
+  live.exercises=s.exercises.map((e,n)=>({name:e.name,bw:!!e.bw,eq:eqOf(e),link:n>0&&!!e.link,
+    sets:Array.from({length:Math.max(1,e.sets.length)},()=>({reps:'',peso:''}))}));
+  render();
+};
 window.delH=async id=>{
   if(!await ask('Excluir sessão?','Esta sessão será removida do histórico permanentemente.','Excluir',true))return;
   pushUndo('excluir sessão de musculação');
@@ -5032,7 +5092,7 @@ window.editHist=id=>{
   window.__ehId=id;
   window.__ehDate=s.date;
   window.__ehFeedback=s.feedback||'';
-  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,link:!!e.link,swapped:!!e.swapped,fb:e.fb||'',
+  window.__ehExs=s.exercises.map(e=>({name:e.name,bw:!!e.bw,eq:eqOf(e),link:!!e.link,swapped:!!e.swapped,fb:e.fb||'',
     sets:e.sets.map(st=>({reps:st.reps,peso:st.peso}))}));
   drawEditHist();
 };
@@ -5054,8 +5114,7 @@ function drawEditHist(){
         <input value="${esc(ex.name)}" oninput="ehName(${i},this.value)" onblur="ehNameBlur(${i})" placeholder="Nome do exercício"
           style="flex:1;min-width:0;background:transparent;border:none;color:var(--txt);font-size:15px;font-weight:700;padding:4px 0">
         <div style="display:flex;align-items:center;gap:10px;flex:none">
-        <label class="bw-tog ${ex.bw?'on':''}">
-          <input type="checkbox" ${ex.bw?'checked':''} onchange="ehBW(${i},this.checked)">PC</label>
+        ${eqBtn(ex,`openEq(${i},'eh')`)}
         <button class="btn-sm btn-ghost" onclick="ehAddSet(${i})">+ série</button></div></div>
       <div class="ex-body">
         <div class="set-hdr"><div>#</div><div>Reps</div>
@@ -5113,7 +5172,7 @@ window.saveEditHist=async()=>{
   const keptE=window.__ehExs.map((e,idx)=>({e,idx,
     sets:e.sets.filter(st=>st.reps!==''||st.peso!=='')})).filter(x=>x.sets.length);
   const keptEi=new Set(keptE.map(x=>x.idx));
-  const exs=keptE.map((x,n)=>({name:(x.e.name||'').trim()||'Exercício',bw:!!x.e.bw,
+  const exs=keptE.map((x,n)=>({name:(x.e.name||'').trim()||'Exercício',bw:!!x.e.bw,...(eqOf(x.e)?{eq:eqOf(x.e)}:{}),
     link:n>0&&!!x.e.link&&keptEi.has(x.idx-1),
     ...(x.e.swapped?{swapped:true}:{}),...((x.e.fb||'').trim()?{fb:x.e.fb.trim()}:{}),sets:x.sets}));
   if(!exs.length)return toast('Mantenha ao menos uma série preenchida');
@@ -5398,6 +5457,10 @@ function mobReport(){
 
 /* ---------- ROUTER ---------- */
 function render(){
+  // nas sessões de treino o cabeçalho (nome do treino, às vezes bem longo) rola junto com a
+  // página em vez de ficar fixo ocupando a tela
+  { const hd=document.querySelector('header');
+    if(hd)hd.style.position=((view==='session'&&cur)||(view==='msession'&&curM))?'static':''; }
   if(view==='session'&&cur)session();
   else if(view==='msession'&&curM)mobSession();
   else if(view==='hist')hist();

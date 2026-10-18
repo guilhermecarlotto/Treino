@@ -4599,7 +4599,7 @@ function session(){
       const quando=dias===0?'hoje':dias===1?'ontem':`há ${dias} dias`;
       h+='<div class="prev">Última vez'+(p.eq?` <span class="tag-pc">${p.eq==='bw'?'PESO CORPORAL':eqShort(p.eq).toUpperCase()}</span>`:'')+': '+
         p.sets.map((s,n)=>`<span class="pill">${n+1}ª <b>${p.bw?esc(s.reps)+' reps':esc(s.reps)+'×'+esc(s.peso)+'kg'}</b></span>`).join('')+
-        `<div style="margin-top:5px;font-size:11px;opacity:.8">${quando}${sameW?'':' · em '+esc(p.wname)}</div></div>`;
+        `<div style="margin-top:5px;font-size:11px;opacity:.8">${quando}</div></div>`;
     }else{
       h+='<div class="prev">Sem registro anterior deste exercício.</div>';
     }

@@ -1405,7 +1405,7 @@ function structSummary(r){
     const on=r.fk.on, off=r.fk.off, n=r.reps||1;
     p.push(`<b>${n}×</b> forte ${blkKm(on).toFixed(2)} km/${fmtDur(blkSec(on))}${pc(blkKm(on),blkSec(on))}`);
     p.push(`<b>&nbsp;&nbsp;&nbsp;</b> leve ${blkKm(off).toFixed(2)} km/${fmtDur(blkSec(off))}${pc(blkKm(off),blkSec(off))}`);
-  }else if(r.type==='limiar'&&r.fk&&r.fk.on){
+  }else if(r.type==='limiar'&&!(Array.isArray(r.blocks)&&r.blocks.length>1)&&r.fk&&r.fk.on){
     const on=r.fk.on;
     if(blkKm(on)||blkSec(on))
       p.push(`<b>Limiar</b> ${blkKm(on).toFixed(2)} km em ${fmtDur(blkSec(on))}${pc(blkKm(on),blkSec(on))}`);
@@ -1413,7 +1413,7 @@ function structSummary(r){
     const run=r.rw.run, walk=r.rw.walk, n=r.rwReps||1;
     p.push(`<b>${n}×</b> 🏃 correndo ${blkKm(run).toFixed(2)} km/${fmtDur(blkSec(run))}${pc(blkKm(run),blkSec(run))}`);
     p.push(`<b>&nbsp;&nbsp;&nbsp;</b> 🚶 caminhando ${blkKm(walk).toFixed(2)} km/${fmtDur(blkSec(walk))}${pc(blkKm(walk),blkSec(walk))}`);
-  }else if(r.type==='rodagem'&&Array.isArray(r.blocks)&&r.blocks.length>1){
+  }else if(RB_TYPES[r.type]&&Array.isArray(r.blocks)&&r.blocks.length>1){
     // rodagem em blocos: um por linha (com um bloco só não há o que detalhar)
     r.blocks.forEach((b,i)=>{const k=blkKm(b), s=rbSec(b);
       p.push(`<b>Bloco ${i+1}</b> ${k.toFixed(2)} km · ${fmtDur(s)}${pc(k,s)}`);});
@@ -1432,7 +1432,7 @@ window.runForm=id=>{
     rwMode:'off',rw:{run:blank(),walk:blank()},rwReps:6};
   if(RF.feedback===undefined)RF.feedback=''; // compat com registros antigos, sem o campo
   if(!RF.level)RF.level=runLevel(RF)||'moderado'; // compat com registros antigos em RPE numérico
-  RF.tmode='pace';
+  RF.tmode='speed';
   if(r){
     // "km"/"sec" no registro salvo são o TOTAL (aquecimento + parte principal + desaquecimento);
     // para rodagem/regenerativo/longão, o formulário edita só a parte principal (RF.km, RF.h/m/s),
@@ -1452,7 +1452,7 @@ window.runForm=id=>{
     RF.rw=r.rw||{run:blank(),walk:blank()};
     RF.rwReps=r.rwReps||6;
   }
-  rbEnsure(RF); if(RF.blocks)rbSync(RF);
+  rbFromRunWalk(RF); rbEnsure(RF); if(RF.blocks)rbSync(RF);
   syncShots();
   drawRunForm();
 };
@@ -1462,7 +1462,7 @@ function syncShots(){
   while(RF.shots.length<n)RF.shots.push({km:'',m:'',s:'',rm:'',rs:''});
   RF.shots.length=n;
 }
-window.rfSet=(k,v)=>{RF[k]=v;if(k==='type'&&v==='rodagem'&&!(RF.blocks&&RF.blocks.length>1))RF.blocks=null;if(k==='type')syncShots();drawRunForm()};
+window.rfSet=(k,v)=>{RF[k]=v;if(k==='type'&&RB_TYPES[v]&&!(RF.blocks&&RF.blocks.length>1))RF.blocks=null;if(k==='type')syncShots();drawRunForm()};
 
 // --- rodagem intercalando corrida e caminhada (run-walk) ---
 
@@ -1517,8 +1517,8 @@ function drawRunForm(){
         <input type="date" value="${dv}" onchange="rfDate(this.value)"></div>
       <div class="field"><label>Preenchimento do tempo</label>
         <div class="seg seg3">
-          <button class="${RF.tmode==='pace'?'on':''}" onclick="rfSet('tmode','pace')">Pace</button>
           <button class="${RF.tmode==='speed'?'on':''}" onclick="rfSet('tmode','speed')">km/h</button>
+          <button class="${RF.tmode==='pace'?'on':''}" onclick="rfSet('tmode','pace')">Pace</button>
           <button class="${RF.tmode==='time'?'on':''}" onclick="rfSet('tmode','time')">Tempo</button>
         </div></div>`;
 
@@ -1599,103 +1599,9 @@ function drawRunForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(RF.fk.off.s)}" placeholder="00" oninput="rfFk('off','s',this.value)">
             </div></div>`}</div></div>`;
-    }else if(t==='limiar'){
-      h+=`<div class="blk">
-        <div class="blk-h"><span class="bi">🔺</span><span class="bt">Parte principal</span>
-          <span class="bs">ritmo de limiar</span></div>
-        <div class="mini-row">
-          <div class="mini-f"><label>Distância (km)</label>
-            <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.fk.on.km)}"
-              placeholder="6.00" oninput="rfFk('on','km',this.value)"></div>
-          ${RF.tmode==='pace'?fkPaceHTML(RF.fk.on,'rfFkPace','on'):
-          RF.tmode==='speed'?fkSpeedHTML(RF.fk.on,'rfFkSpeed','on'):
-          `<div class="mini-f"><label>Tempo (min : s)</label>
-            <div class="dur2">
-              <input type="number" inputmode="numeric" value="${esc(RF.fk.on.m)}" placeholder="25" oninput="rfFk('on','m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(RF.fk.on.s)}" placeholder="00" oninput="rfFk('on','s',this.value)">
-            </div></div>`}</div></div>`;
-    }else{ // rodagem, regenerativo e longão: parte principal
-      // só a rodagem oferece intercalar corrida e caminhada — regenerativo e longão
-      // continuam com distância + tempo direto, como sempre
-      if(t==='rodagem'){
-        h+=`<div class="field"><label>Como foi a parte principal</label>
-          <div class="seg" style="margin-bottom:10px">
-            <button class="${(RF.rwMode||'off')==='off'?'on':''}" onclick="rfRwMode('off')">🏃 Correr sem parar</button>
-            <button class="${RF.rwMode==='on'?'on':''}" onclick="rfRwMode('on')">🔁 Corrida + caminhada</button>
-          </div></div>`;
-      }
-      if(t==='rodagem'&&RF.rwMode==='on'){
-        h+=`<div class="rep-ctl">
-          <span class="rl">Quantas vezes intercalou</span>
-          <button ${RF.rwReps<=1?'disabled':''} onclick="rfRwReps(${RF.rwReps-1})">−</button>
-          <span class="rv">${RF.rwReps}</span>
-          <button ${RF.rwReps>=60?'disabled':''} onclick="rfRwReps(${RF.rwReps+1})">+</button></div>`;
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Correndo</span>
-            <span class="bs">cada intercalação</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.rw.run.km)}"
-                placeholder="0.40" oninput="rfRw('run','km',this.value)"></div>
-            ${RF.tmode==='pace'?fkPaceHTML(RF.rw.run,'rfRwPace','run'):
-            RF.tmode==='speed'?fkSpeedHTML(RF.rw.run,'rfRwSpeed','run'):
-            `<div class="mini-f"><label>Tempo (min : s)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${esc(RF.rw.run.m)}" placeholder="2" oninput="rfRw('run','m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(RF.rw.run.s)}" placeholder="00" oninput="rfRw('run','s',this.value)">
-              </div></div>`}</div></div>`;
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🚶</span><span class="bt">Caminhando</span>
-            <span class="bs">cada intercalação</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.rw.walk.km)}"
-                placeholder="0.20" oninput="rfRw('walk','km',this.value)"></div>
-            ${RF.tmode==='pace'?fkPaceHTML(RF.rw.walk,'rfRwPace','walk'):
-            RF.tmode==='speed'?fkSpeedHTML(RF.rw.walk,'rfRwSpeed','walk'):
-            `<div class="mini-f"><label>Tempo (min : s)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${esc(RF.rw.walk.m)}" placeholder="1" oninput="rfRw('walk','m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(RF.rw.walk.s)}" placeholder="30" oninput="rfRw('walk','s',this.value)">
-              </div></div>`}</div></div>`;
-        const rwTotKm=(blkKm(RF.rw.run)+blkKm(RF.rw.walk))*(RF.rwReps||1);
-        const rwTotSec=(blkSec(RF.rw.run)+blkSec(RF.rw.walk))*(RF.rwReps||1);
-        h+=`<div class="calc-tot" style="margin-bottom:12px"><div class="ct2">
-          <span>Total da parte principal</span><b>${rwTotKm.toFixed(2)} km · ${fmtDur(rwTotSec)}</b></div></div>`;
-      }else if(t==='rodagem'){
-        // rodagem contínua: parte principal em blocos (um por padrão, dá pra adicionar/remover)
-        rbEnsure(RF);
-        h+=rbListHTML(RF,'rf',false,false);
-      }else{
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.km)}"
-                placeholder="10.00" oninput="rfNum('km',this.value)"></div>
-            ${RF.tmode==='pace'?`<div class="mini-f"><label>Pace (min : s /km)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).m}" placeholder="5" oninput="rfNumPace('m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${paceMS(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).s}" placeholder="00" oninput="rfNumPace('s',this.value)">
-              </div></div>`:
-            RF.tmode==='speed'?`<div class="mini-f"><label>Velocidade (km/h)</label>
-              <input type="number" inputmode="decimal" step="0.1"
-                value="${speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs())?speedOf(parseFloat(String(RF.km).replace(',','.'))||0,rfSecs()).toFixed(1):''}"
-                placeholder="10.0" oninput="rfNumSpeed(this.value)"></div>`:
-            `<div class="mini-f"><label>Tempo (h:min:s)</label>
-              <div class="dur-row">
-                <input type="number" inputmode="numeric" value="${esc(RF.h)}" placeholder="0" oninput="rfNum('h',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(RF.m)}" placeholder="45" oninput="rfNum('m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(RF.s)}" placeholder="00" oninput="rfNum('s',this.value)">
-              </div></div>`}
-          </div></div>`;
-      }
+    }else{ // limiar, rodagem, regenerativo e longão: parte principal em blocos — um por padrão
+      rbEnsure(RF);
+      h+=rbListHTML(RF,'rf',false,false);
     }
     h+=blkHTML(RF,'rfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcbox"></div>`;
@@ -1766,9 +1672,7 @@ window.saveRun=async()=>{
     rec.wu=RF.wu; rec.cd=RF.cd;
     if(RF.type==='inter'){rec.reps=RF.reps;rec.shots=RF.shots;}
     else if(RF.type==='fartlek'){rec.fk=RF.fk;rec.reps=RF.reps;}
-    else if(RF.type==='limiar'){rec.fk=RF.fk;}
-    else if(RF.type==='rodagem'&&RF.rwMode==='on'){rec.rwMode='on';rec.rw=RF.rw;rec.rwReps=RF.rwReps;}
-    else if(RF.type==='rodagem'){rec.blocks=rbClean(RF);}
+    else if(RB_TYPES[RF.type]){rec.blocks=rbClean(RF); if(RF.type==='limiar')rec.fk=rbLimiarFk({blocks:rec.blocks});}
     rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
   }
   pushUndo(RF.id?'editar corrida':'registrar corrida');
@@ -2817,6 +2721,7 @@ window.planEdit=id=>{
   const mainSec=p.mainSec!==undefined?p.mainSec:(p.targetSec||0);
   if(mainSec){PF.h=Math.floor(mainSec/3600);PF.m=Math.floor((mainSec%3600)/60);PF.s=mainSec%60;}
   pfSyncShots();
+  rbFromRunWalk(PF);
   drawPlanForm();
 };
 // mostra os detalhes do treino já concluído que cumpriu este plano — clicar num
@@ -2901,7 +2806,7 @@ window.planUndoAsk=async p=>{
   p.doneId=null;
   await save();closeM();render();toast(isRunKind?'Marcação desfeita — corrida removida do histórico':'Marcação desfeita — plano voltou a pendente');
 };
-window.pfSet=(k,v)=>{PF[k]=v;if(k==='type'&&v==='rodagem'&&!(PF.blocks&&PF.blocks.length>1))PF.blocks=null;if(k==='type')pfSyncShots();drawPlanForm()};
+window.pfSet=(k,v)=>{PF[k]=v;if(k==='type'&&RB_TYPES[v]&&!(PF.blocks&&PF.blocks.length>1))PF.blocks=null;if(k==='type')pfSyncShots();drawPlanForm()};
 
 // alvo de tempo/pace para rodagem, regenerativo e longão — mesma mecânica do registro (RF)
 
@@ -2945,9 +2850,7 @@ window.savePlan=async()=>{
       rec.wu=PF.wu; rec.cd=PF.cd;
       if(PF.type==='inter'){rec.reps=PF.reps;rec.shots=PF.shots;}
       else if(PF.type==='fartlek'){rec.fk=PF.fk;rec.reps=PF.reps;}
-      else if(PF.type==='limiar'){rec.fk=PF.fk;}
-      else if(PF.type==='rodagem'&&PF.rwMode==='on'){rec.rwMode='on';rec.rw=PF.rw;rec.rwReps=PF.rwReps;}
-      else if(PF.type==='rodagem'){rec.blocks=rbClean(PF);}
+      else if(RB_TYPES[PF.type]){rec.blocks=rbClean(PF); if(PF.type==='limiar')rec.fk=rbLimiarFk({blocks:rec.blocks});}
       rec.mainKm=st.mainKm; rec.mainSec=st.mainSec; rec.restSec=st.restSec;
     }else{
       // (inalcançável: HAS_WU cobre todos os tipos de corrida)
@@ -3257,104 +3160,9 @@ function drawPlanForm(){
               <div class="sep">:</div>
               <input type="number" inputmode="numeric" value="${esc(PF.fk.off.s)}" placeholder="00" oninput="pfFk('off','s',this.value)">
             </div></div>`}</div></div>`;
-    }else if(t==='limiar'){
-      h+=`<div class="blk">
-        <div class="blk-h"><span class="bi">🔺</span><span class="bt">Parte principal</span>
-          <span class="bs">ritmo de limiar</span></div>
-        <div class="mini-row">
-          <div class="mini-f"><label>Distância (km)</label>
-            <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.fk.on.km)}"
-              placeholder="6.00" oninput="pfFk('on','km',this.value)"></div>
-          ${PF.tmode==='pace'?fkPaceHTML(PF.fk.on,'pfFkPace','on'):
-          PF.tmode==='speed'?fkSpeedHTML(PF.fk.on,'pfFkSpeed','on'):
-          `<div class="mini-f"><label>Tempo (min : s)</label>
-            <div class="dur2">
-              <input type="number" inputmode="numeric" value="${esc(PF.fk.on.m)}" placeholder="25" oninput="pfFk('on','m',this.value)">
-              <div class="sep">:</div>
-              <input type="number" inputmode="numeric" value="${esc(PF.fk.on.s)}" placeholder="00" oninput="pfFk('on','s',this.value)">
-            </div></div>`}</div></div>`;
-    }else{ // rodagem, regenerativo e longão: parte principal (alvo do plano)
-      // só a rodagem oferece planejar intercalando corrida e caminhada — regenerativo e
-      // longão continuam com distância + tempo alvo direto, como sempre
-      if(t==='rodagem'){
-        h+=`<div class="field"><label>Como planejar a parte principal</label>
-          <div class="seg" style="margin-bottom:10px">
-            <button class="${(PF.rwMode||'off')==='off'?'on':''}" onclick="pfRwMode('off')">🏃 Correr sem parar</button>
-            <button class="${PF.rwMode==='on'?'on':''}" onclick="pfRwMode('on')">🔁 Corrida + caminhada</button>
-          </div></div>`;
-      }
-      if(t==='rodagem'&&PF.rwMode==='on'){
-        h+=`<div class="rep-ctl">
-          <span class="rl">Quantas vezes intercalar</span>
-          <button ${PF.rwReps<=1?'disabled':''} onclick="pfRwReps(${PF.rwReps-1})">−</button>
-          <span class="rv">${PF.rwReps}</span>
-          <button ${PF.rwReps>=60?'disabled':''} onclick="pfRwReps(${PF.rwReps+1})">+</button></div>`;
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Correndo</span>
-            <span class="bs">cada intercalação</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.rw.run.km)}"
-                placeholder="0.40" oninput="pfRw('run','km',this.value)"></div>
-            ${PF.tmode==='pace'?fkPaceHTML(PF.rw.run,'pfRwPace','run'):
-            PF.tmode==='speed'?fkSpeedHTML(PF.rw.run,'pfRwSpeed','run'):
-            `<div class="mini-f"><label>Tempo (min : s)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${esc(PF.rw.run.m)}" placeholder="2" oninput="pfRw('run','m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(PF.rw.run.s)}" placeholder="00" oninput="pfRw('run','s',this.value)">
-              </div></div>`}</div></div>`;
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🚶</span><span class="bt">Caminhando</span>
-            <span class="bs">cada intercalação</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.rw.walk.km)}"
-                placeholder="0.20" oninput="pfRw('walk','km',this.value)"></div>
-            ${PF.tmode==='pace'?fkPaceHTML(PF.rw.walk,'pfRwPace','walk'):
-            PF.tmode==='speed'?fkSpeedHTML(PF.rw.walk,'pfRwSpeed','walk'):
-            `<div class="mini-f"><label>Tempo (min : s)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${esc(PF.rw.walk.m)}" placeholder="1" oninput="pfRw('walk','m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(PF.rw.walk.s)}" placeholder="30" oninput="pfRw('walk','s',this.value)">
-              </div></div>`}</div></div>`;
-        const rwTotKmP=(blkKm(PF.rw.run)+blkKm(PF.rw.walk))*(PF.rwReps||1);
-        const rwTotSecP=(blkSec(PF.rw.run)+blkSec(PF.rw.walk))*(PF.rwReps||1);
-        h+=`<div class="calc-tot" style="margin-bottom:12px"><div class="ct2">
-          <span>Total da parte principal</span><b>${rwTotKmP.toFixed(2)} km · ${fmtDur(rwTotSecP)}</b></div></div>`;
-      }else if(t==='rodagem'){
-        // rodagem contínua: parte principal em blocos (alvo de cada trecho)
-        rbEnsure(PF);
-        h+=rbListHTML(PF,'pf',true,false);
-      }else{
-        const pfpv2=paceMS(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs());
-        h+=`<div class="blk">
-          <div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span></div>
-          <div class="mini-row">
-            <div class="mini-f"><label>Distância (km)</label>
-              <input type="number" inputmode="decimal" step="0.01" value="${esc(PF.km)}"
-                placeholder="10.00" oninput="pfNum('km',this.value)"></div>
-            ${PF.tmode==='pace'?`<div class="mini-f"><label>Pace alvo (min : s /km)</label>
-              <div class="dur2">
-                <input type="number" inputmode="numeric" value="${pfpv2.m}" placeholder="5" oninput="pfNumPace('m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${pfpv2.s}" placeholder="00" oninput="pfNumPace('s',this.value)">
-              </div></div>`:
-            PF.tmode==='speed'?`<div class="mini-f"><label>Velocidade alvo (km/h)</label>
-              <input type="number" inputmode="decimal" step="0.1"
-                value="${speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs())?speedOf(parseFloat(String(PF.km).replace(',','.'))||0,pfSecs()).toFixed(1):''}"
-                placeholder="10.0" oninput="pfNumSpeed(this.value)"></div>`:
-            `<div class="mini-f"><label>Tempo alvo (h:min:s)</label>
-              <div class="dur-row">
-                <input type="number" inputmode="numeric" value="${esc(PF.h)}" placeholder="0" oninput="pfNum('h',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(PF.m)}" placeholder="45" oninput="pfNum('m',this.value)">
-                <div class="sep">:</div>
-                <input type="number" inputmode="numeric" value="${esc(PF.s)}" placeholder="00" oninput="pfNum('s',this.value)">
-              </div></div>`}
-          </div></div>`;
-      }
+    }else{ // limiar, rodagem, regenerativo e longão: parte principal (alvo) em blocos — um por padrão
+      rbEnsure(PF);
+      h+=rbListHTML(PF,'pf',true,false);
     }
     h+=blkHTML(PF,'pfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcboxP"></div>`;
@@ -3418,10 +3226,10 @@ window.pfDone=()=>{
   PF=null;
   RF={id:null,date:p.date,type:p.type,km:p.km||'',h:p.h||'',m:p.m||'',s:p.s||'',level:p.level||'moderado',surf:'esteira',
     note:p.note||'',feedback:'',wu:p.wu||blank(),cd:p.cd||blank(),reps:p.reps||6,
-    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'pace',
+    shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'speed',
     rwMode:p.rwMode||'off',rw:p.rw||{run:blank(),walk:blank()},rwReps:p.rwReps||6,
     blocks:p.blocks||null};
-  rbEnsure(RF); if(RF.blocks)rbSync(RF);
+  rbFromRunWalk(RF); rbEnsure(RF); if(RF.blocks)rbSync(RF);
   syncShots();
   drawRunForm();
 };

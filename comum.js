@@ -317,17 +317,17 @@ function structTotals(obj){
     const n=obj.reps||1;
     mainKm=(blkKm(obj.fk.on)+blkKm(obj.fk.off))*n;
     mainSec=(blkSec(obj.fk.on)+blkSec(obj.fk.off))*n;
-  }else if(t==='limiar'){
-    mainKm=blkKm(obj.fk.on);
-    mainSec=blkSec(obj.fk.on);
   }else if(t==='rodagem'&&obj.rwMode==='on'&&obj.rw){
-    // rodagem intercalando corrida e caminhada: soma (corrida+caminhada) × nº de vezes intercalado
+    // (registros antigos) rodagem intercalando corrida e caminhada: soma (corrida+caminhada) × nº de vezes
     const n=obj.rwReps||1;
     mainKm=(blkKm(obj.rw.run)+blkKm(obj.rw.walk))*n;
     mainSec=(blkSec(obj.rw.run)+blkSec(obj.rw.walk))*n;
-  }else if(t==='rodagem'&&Array.isArray(obj.blocks)&&obj.blocks.length){
-    // rodagem contínua em blocos: soma de todos os blocos da parte principal
+  }else if(RB_TYPES[t]&&Array.isArray(obj.blocks)&&obj.blocks.length){
+    // parte principal em blocos (rodagem, regenerativo, longão, limiar): soma de todos os blocos
     obj.blocks.forEach(b=>{mainKm+=blkKm(b);mainSec+=rbSec(b);});
+  }else if(t==='limiar'){
+    mainKm=blkKm(obj.fk.on);
+    mainSec=blkSec(obj.fk.on);
   }else{ // rodagem contínua (formato antigo), regenerativo e longão: parte principal direta (distância + tempo)
     mainKm=parseFloat(String(obj.km).replace(',','.'))||0;
     mainSec=(parseInt(obj.h)||0)*3600+(parseInt(obj.m)||0)*60+(parseInt(obj.s)||0);
@@ -407,10 +407,33 @@ function fkSpeedHTML(b,setter,key){
 }
 const rbBlank=()=>({km:'',h:'',m:'',s:''});
 const rbSec=b=>(parseInt(b.h)||0)*3600+(parseInt(b.m)||0)*60+(parseInt(b.s)||0);
+// tipos cuja parte principal é uma lista de blocos (mudanças de ritmo): todos, menos tiros
+// (inter, que tem sua própria estrutura) e fartlek (forte/leve × repetições)
+const RB_TYPES={rodagem:1,regen:1,long:1,limiar:1};
 function rbEnsure(o){
-  if(!o||o.type!=='rodagem')return;
-  if(!Array.isArray(o.blocks)||!o.blocks.length)
-    o.blocks=[{km:o.km??'',h:o.h??'',m:o.m??'',s:o.s??''}];
+  if(!o||!RB_TYPES[o.type])return;
+  if(!Array.isArray(o.blocks)||!o.blocks.length){
+    if(o.type==='limiar'&&o.fk&&o.fk.on&&(blkKm(o.fk.on)||blkSec(o.fk.on)))
+      o.blocks=[{km:o.fk.on.km??'',h:'',m:o.fk.on.m??'',s:o.fk.on.s??''}];
+    else o.blocks=[{km:o.km??'',h:o.h??'',m:o.m??'',s:o.s??''}];
+  }
+}
+// registros/planos antigos de rodagem "corrida + caminhada" viram uma lista de blocos
+// (corrida, caminhada, corrida, caminhada…) — o total de km/tempo é o mesmo
+function rbFromRunWalk(o){
+  if(!o||o.rwMode!=='on'||!o.rw)return;
+  const mk=b=>({km:b.km??'',h:'',m:b.m??'',s:b.s??''});
+  const n=Math.max(1,Math.min(60,o.rwReps||1)), bs=[];
+  for(let i=0;i<n;i++){bs.push(mk(o.rw.run||{}));bs.push(mk(o.rw.walk||{}));}
+  o.blocks=bs.filter(b=>blkKm(b)||blkSec(b));
+  if(!o.blocks.length)o.blocks=null;
+  o.rwMode='off';
+}
+// grava a parte principal (soma dos blocos) de volta nos campos usados por quem lê o limiar
+function rbLimiarFk(o){
+  const sec=(o.blocks||[]).reduce((a,b)=>a+rbSec(b),0);
+  const km=(o.blocks||[]).reduce((a,b)=>a+blkKm(b),0);
+  return {on:{km:km?String(+km.toFixed(3)):'',m:sec?Math.floor(sec/60):'',s:sec?sec%60:''},off:blank()};
 }
 function rbSync(o){
   if(!o||!Array.isArray(o.blocks))return;
@@ -850,6 +873,21 @@ async function cloudSync(opts){
 }
 // voltou a internet: tenta sincronizar o que ficou pendente
 window.addEventListener('online',()=>{cloudSync();});
+// atualização automática: trazer o que mudou no outro (app ↔ planejador) sem precisar recarregar.
+// Sincroniza ao voltar pra esta aba/janela e a cada 60 s enquanto ela está aberta e visível.
+// Não roda com um formulário (modal) aberto, pra não redesenhar a tela no meio da edição.
+let _autoSyncAt=0;
+function autoSync(){
+  if(document.hidden||!navigator.onLine)return;
+  const m=document.getElementById('modal');
+  if(m&&m.querySelector('.modal-in'))return;
+  if(Date.now()-_autoSyncAt<15000)return;
+  _autoSyncAt=Date.now();
+  cloudSync().then(ok=>{ if(ok&&typeof markSynced==='function')markSynced(); });
+}
+document.addEventListener('visibilitychange',autoSync);
+window.addEventListener('focus',autoSync);
+setInterval(autoSync,60000);
 
 /* ==================== CÓPIA DE SEGURANÇA (arquivo) ==================== */
 const BACKUP_EVERY_DAYS=15;

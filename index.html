@@ -645,11 +645,15 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 
 <script src="comum.js"></script>
 <script>
-if(typeof mergeState!=='function'){ // comum.js não carregou (arquivo faltando ao lado deste HTML)
+// comum.js não carregou (arquivo faltando) ou é de uma versão ANTERIOR à deste index.html (publicado
+// só um dos dois): sem as funções de blocos de corrida, abrir o registro de corrida falhava calado
+if(typeof mergeState!=='function'||typeof rbFromRunWalk!=='function'||typeof RB_TYPES==='undefined'){
+  const faltou=typeof mergeState!=='function';
   document.body.innerHTML='<div style="padding:30px 22px;font-family:sans-serif;line-height:1.6;color:#eef0f6;background:#0e0f13;min-height:100vh">'+
-    '<h2 style="margin-top:0">Arquivo comum.js não encontrado</h2>O app precisa do arquivo <b>comum.js</b> na mesma pasta/site deste arquivo. '+
-    'Publique (ou copie) o comum.js junto e abra de novo.</div>';
-  throw new Error('comum.js ausente');
+    '<h2 style="margin-top:0">'+(faltou?'Arquivo comum.js não encontrado':'comum.js desatualizado')+'</h2>'+
+    (faltou?'O app precisa do arquivo <b>comum.js</b> na mesma pasta/site deste arquivo. Publique (ou copie) o comum.js junto e abra de novo.'
+      :'Este <b>index.html</b> é mais novo que o <b>comum.js</b> publicado. Publique os dois juntos (index.html e comum.js) e abra de novo.')+'</div>';
+  throw new Error('comum.js ausente ou desatualizado');
 }
 
 let S={workouts:[],history:[],runs:[],plans:[]}, view='home', cur=null, live=null, t0=null, tick=null;

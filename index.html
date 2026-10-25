@@ -509,6 +509,14 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .td-item .td-tx span{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .td-item .td-st{flex:none;font-size:12px;font-weight:800;color:var(--accent)}
 .td-item.done .td-st{color:var(--accent2)}
+.pl-item.late{border-style:dashed;border-color:#e0973f;opacity:.9}
+.late-box{border:1px solid rgba(224,151,63,.55);background:rgba(224,151,63,.08);border-radius:13px;padding:12px 13px;margin-bottom:12px}
+.late-box .lb-h{font-size:13.5px;font-weight:800;color:#e0973f;margin-bottom:3px}
+.late-box .lb-s{font-size:11.5px;color:var(--dim);line-height:1.45;margin-bottom:8px}
+.late-box .lb-i{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid var(--line);cursor:pointer;font-size:13px}
+.late-box .lb-i b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.late-box .lb-i i{font-style:normal;color:var(--dim);font-size:11.5px;flex:none}
+.td-go{flex:none;background:var(--accent2);color:#08130d;font-size:13px;font-weight:800;padding:9px 14px;border-radius:10px}
 .td-item.done{opacity:.8}
 /* rodagem em blocos (parte principal dividida em trechos) */
 .rb-del{flex:none;width:26px;height:26px;padding:0;border-radius:7px;background:transparent;
@@ -2332,6 +2340,7 @@ function handleAct(ev){
     if(act==='delplan')delPlanNow(arg);
     else if(act==='editplan')planEdit(arg);
     else if(act==='histday')histDayDetail(arg);
+    else if(act==='planview')planPreview(arg);
     else if(act==='swapex')doSwapEx(window.__swapFiltered[parseInt(arg)]);
     else dbg('acao desconhecida: '+act);
   }catch(e){ dbg('EXCECAO em '+act+': '+e.message); }
@@ -2474,13 +2483,21 @@ let plDel=false;
 // a aba Plano passou a ser histórico puro, então planejamento não cumprido não
 // faz mais sentido continuar aparecendo ali (não é uma exclusão pedida pelo
 // usuário, então não pede confirmação — é consequência automática de virar passado)
-function purgeStalePlans(){
+// ATUALIZAÇÃO: não remove mais nada. Planos passados não marcados como feitos ficam guardados
+// (esquecer de marcar e só lembrar depois é comum): aparecem como pendentes na aba Plano e em
+// um aviso na aba Treinos, de onde dá pra registrar como feito na data certa.
+function purgeStalePlans(){}
+// planos de dias anteriores a hoje ainda sem registro realizado vinculado
+function latePlans(){
   const todayK=dayKey(Date.now());
-  const kept=(S.plans||[]).filter(p=>p.doneId||dayKey(p.date)>=todayK);
-  if(kept.length===(S.plans||[]).length)return;
-  pushUndo('remover planos passados não cumpridos');
-  S.plans=kept;
-  save();
+  return plans().filter(p=>planKey(p.date)<todayK&&!(p.doneId&&doneRecordOf(p)))
+    .sort((a,b)=>a.date-b.date);
+}
+function doneRecordOf(p){
+  if(!p.doneId)return null;
+  if(p.kind==='gym')return S.history.find(x=>x.id===p.doneId)||null;
+  if(p.kind==='mobility')return S.mobility.find(x=>x.id===p.doneId)||null;
+  return runs().find(x=>x.id===p.doneId)||null;
 }
 // junta tudo que foi realmente feito num dia passado, direto dos registros reais
 // (histórico de musculação, corridas, mobilidade) — não do plano, que pode nem
@@ -2578,7 +2595,14 @@ window.histDayDetail=arg=>{
 };
 
 /* --- item de um plano no calendário (qualquer tipo) --- */
+// plano de dia passado ainda não feito: marcado como pendente (borda tracejada) e, ao tocar,
+// abre a visualização com o botão de registrar como feito
 function planItemHTML(p){
+  const s=planItemHTML0(p);
+  if(p.doneId||planKey(p.date)>=dayKey(Date.now()))return s;
+  return s.replace('class="pl-item ','class="pl-item late ').replace('data-act="editplan"','data-act="planview"');
+}
+function planItemHTML0(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
   const delBtn=p.doneId?'':`<button class="pl-x" data-act="delplan" data-arg="${p.id}"
     onclick="delPlanNow('${p.id}');return false;">✕</button>`;
@@ -2608,7 +2632,6 @@ function planItemHTML(p){
 
 /* --- PLANO (mês) — todos os tipos de treino juntos --- */
 function planCal(y,mo){
-  purgeStalePlans();
   const first=new Date(y,mo,1);
   const todayK=dayKey(Date.now());
   let h=`<div class="cal-nav">
@@ -2678,8 +2701,10 @@ function planCal(y,mo){
         <div class="pd">${DOW[dt.getDay()]}<i>${dt.getDate()}</i></div>
         <div class="pl-slot">`;
       if(k<todayK){
-        // dia passado: a aba Plano vira histórico puro aqui — mostra o que foi
-        // realmente feito (via S.history/S.mobility/runs), não o que estava planejado
+        // dia passado: mostra o que foi realmente feito (via S.history/S.mobility/runs) e, além
+        // disso, os planos que ficaram pendentes (não marcados como feito), pra poder registrar
+        // depois — eles não são mais apagados
+        plansOn(k).filter(p=>!(p.doneId&&doneRecordOf(p))).forEach(p=>{h+=planItemHTML(p);});
         historyItemsOn(k).forEach(it=>{h+=historyItemHTML(it);});
         otherItemsOn(k).forEach(o=>{h+=otherItemHTML(o);});
       }else{
@@ -3737,12 +3762,53 @@ function motivaHoje(){
    musculação / Treinos de mobilidade). Mostra só o que está planejado pra hoje (tocar =
    iniciar/registrar) e o que já foi feito hoje; "+ Novo treino" pergunta o que registrar. */
 function todayCardHTML(o){
-  // o: {ic,title,sub,color,done,act}
-  return `<div class="card td-item ${o.done?'done':''}" style="--tc:${o.color}" onclick="${o.act}">
+  // o: {ic,title,sub,color,done,act,view?}
+  // tocar no cartão = ver o treino (view); o botão "▶ Iniciar" é que inicia de verdade (act)
+  return `<div class="card td-item ${o.done?'done':''}" style="--tc:${o.color}" onclick="${o.view||o.act}">
     <span class="td-ic">${o.ic}</span>
     <div class="td-tx"><b>${esc(o.title)}</b>${o.sub?`<span>${esc(o.sub)}</span>`:''}</div>
-    <span class="td-st">${o.done?'✓ feito':'▶ iniciar'}</span></div>`;
+    ${o.done?'<span class="td-st">✓ feito</span>'
+      :`<button class="td-go" onclick="event.stopPropagation();${o.act}">▶ Iniciar</button>`}</div>`;
 }
+// visualização do treino planejado (exercícios propostos), com o botão que inicia de verdade
+window.planPreview=id=>{
+  const p=plans().find(x=>x.id===id); if(!p)return;
+  if(p.kind==='run'){ planEdit(id); return; } // corrida: o formulário do plano tem "✓ Feito"
+  const late=planKey(p.date)<dayKey(Date.now());
+  const isMob=p.kind==='mobility';
+  const w=p.wid?S.workouts.find(x=>x.id===p.wid):null;
+  let title, items=[];
+  if(isMob){
+    title='🧘 '+mobPlanLabel(p);
+    items=(w?w.exercises:[]).map(e=>({name:e.name,sub:e.desc||''}));
+  }else{
+    title='🏋️ '+gymPlanLabel(p);
+    if(p.mode==='custom'){
+      items=(p.exercises||[]).filter(e=>(e.name||'').trim()).map(e=>({name:e.name,
+        sub:[(e.sets||e.reps)?`${e.sets||'?'}× ${e.reps||'?'}`:'',e.note||''].filter(Boolean).join(' · ')}));
+    }else if(p.mode==='muscles'){
+      items=(p.muscles||[]).map(m=>{const g=muscleG(m);return{name:g?g[2]+' '+g[1]:m,sub:''};});
+    }else if(w){
+      items=w.exercises.map(e=>{const tg=(p.targets&&p.targets[e.name])||{};
+        const sets=tg.sets||e.sets, reps=tg.reps||e.reps, note=tg.note||e.note;
+        return{name:e.name,sub:[(sets||reps)?`${sets||'?'}× ${reps||'?'}`:'',note||''].filter(Boolean).join(' · ')};});
+    }
+  }
+  $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
+    <div class="modal-in">
+      <h2>${esc(title)}</h2>
+      ${late?`<div style="font-size:12px;color:#e0973f;font-weight:700;margin:-4px 0 10px">⚠️ Planejado para ${fdateW(p.date)} — registrar como feito vai usar essa data (dá pra ajustar na sessão)</div>`:''}
+      ${p.note?`<div style="font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px">${esc(p.note)}</div>`:''}
+      ${items.length?items.map((it,i)=>`<div class="hist-row" style="align-items:flex-start">
+        <span style="color:var(--txt)">${i+1}. ${esc(it.name)}</span>
+        <span style="text-align:right;max-width:55%">${esc(it.sub)}</span></div>`).join('')
+        :'<div class="empty" style="padding:14px 8px">Sem exercícios definidos neste plano.</div>'}
+      <button class="btn-g" style="width:100%;margin-top:14px" onclick="closeM();startPlanToday('${p.id}')">${late?'✓ Registrar como feito':'▶ Iniciar treino'}</button>
+      <div class="row" style="margin-top:10px">
+        <button class="btn-ghost" onclick="closeM()">Fechar</button>
+        <button class="btn-ghost" onclick="closeM();planEdit('${p.id}')">✎ Editar plano</button></div>
+    </div></div>`;
+};
 function todayItemsHTML(){
   const k=dayKey(Date.now());
   const ps=plansOn(k);
@@ -3751,14 +3817,16 @@ function todayItemsHTML(){
   ps.forEach(p=>{
     const done=!!p.doneId;
     const act=done?`planDoneDetailById('${p.id}')`:`startPlanToday('${p.id}')`;
+    // tocar no cartão: ver o treino; só o botão "▶ Iniciar" inicia
+    const view=done?act:(p.kind==='run'?`planEdit('${p.id}')`:`planPreview('${p.id}')`);
     if(p.kind==='run'){
       const t=rType(p.type);
       h+=todayCardHTML({ic:t[2],title:t[1]+(p.km?' · '+(+p.km).toFixed(1)+' km':''),
-        sub:p.note||'Corrida planejada',color:t[3],done,act});
+        sub:p.note||'Corrida planejada',color:t[3],done,act,view});
     }else if(p.kind==='mobility'){
-      h+=todayCardHTML({ic:'🧘',title:mobPlanLabel(p),sub:p.note||'Mobilidade planejada',color:'#5f9e8f',done,act});
+      h+=todayCardHTML({ic:'🧘',title:mobPlanLabel(p),sub:p.note||'Mobilidade planejada',color:'#5f9e8f',done,act,view});
     }else{
-      h+=todayCardHTML({ic:'🏋️',title:gymPlanLabel(p),sub:p.note||'Musculação planejada',color:'var(--accent)',done,act});
+      h+=todayCardHTML({ic:'🏋️',title:gymPlanLabel(p),sub:p.note||'Musculação planejada',color:'var(--accent)',done,act,view});
     }
   });
   // feitos hoje sem plano por trás (os vinculados já aparecem acima como "✓ feito")
@@ -3786,6 +3854,18 @@ function home(){
   $('back').style.display='none'; $('timer').textContent='';
   let h=ringsHTML();
   h+=`<div class="motiva"><span class="mq">“</span>${esc(motivaHoje())}</div>`;
+  const late=latePlans();
+  if(late.length){
+    h+=`<div class="late-box" style="margin-top:14px">
+      <div class="lb-h">⚠️ ${late.length} treino${late.length>1?'s':''} passado${late.length>1?'s':''} sem marcar como feito</div>
+      <div class="lb-s">Toque num treino pra ver e registrar como feito (ele entra no dia certo). Nada é apagado sozinho.</div>
+      ${late.map(p=>{
+        const ic=p.kind==='run'?rType(p.type)[2]:p.kind==='mobility'?'🧘':'🏋️';
+        const nm=p.kind==='run'?rType(p.type)[1]+(p.km?' · '+(+p.km).toFixed(1)+' km':''):p.kind==='mobility'?mobPlanLabel(p):gymPlanLabel(p);
+        return `<div class="lb-i" onclick="planPreview('${p.id}')"><span>${ic}</span><b>${esc(nm)}</b><i>${fdateW(p.date)}</i></div>`;
+      }).join('')}
+    </div>`;
+  }
   h+='<div class="sec-lbl" style="margin-top:16px">Hoje</div>';
   const items=todayItemsHTML();
   h+=items||`<div class="empty" style="padding:24px 18px">Nenhum treino planejado pra hoje.<br>
@@ -3797,13 +3877,24 @@ window.planDoneDetailById=id=>{const p=plans().find(x=>x.id===id); if(p)planDone
 // tocar num treino planejado pra hoje: vai direto pra execução/registro dele
 window.startPlanToday=id=>{
   const p=plans().find(x=>x.id===id); if(!p)return;
+  // plano de dia passado (esqueci de marcar): a sessão já nasce com a data do plano
+  const backdate=planKey(p.date)<dayKey(Date.now());
+  const setDate=()=>{
+    if(!backdate)return;
+    const o=new Date(p.date); o.setHours(12,0,0,0);
+    if(typeof live!=='undefined'&&live&&view==='session')live.date=o.getTime();
+    else if(typeof liveM!=='undefined'&&liveM&&view==='msession')liveM.date=o.getTime();
+    render();
+  };
   if(p.kind==='run'){ planEdit(id); if(PF)pfDone(); return; }
   if(p.kind==='gym'){
-    if(p.wid&&S.workouts.some(w=>w.id===p.wid)){ openW(p.wid,p); return; }
-    if(p.mode==='custom'&&(p.exercises||[]).length){ PF=JSON.parse(JSON.stringify(p)); pfStartCustom(); return; }
+    if(p.wid&&S.workouts.some(w=>w.id===p.wid)){ openW(p.wid,p); setDate(); return; }
+    if(p.mode==='custom'&&(p.exercises||[]).length){ PF=JSON.parse(JSON.stringify(p)); pfStartCustom(); setDate(); return; }
     planEdit(id); return;
   }
-  if(p.kind==='mobility'&&p.wid&&S.workouts.some(w=>w.id===p.wid)){ openMobW(p.wid); return; }
+  if(p.kind==='mobility'&&p.wid&&S.workouts.some(w=>w.id===p.wid)){
+    openMobW(p.wid,p.id); setDate(); return;
+  }
   planEdit(id);
 };
 // "+ Novo treino": o que registrar
@@ -4622,10 +4713,10 @@ function session(){
       h+=`<div class="set">
         <div class="set-n">${j+1}</div>
         <input type="number" inputmode="numeric" pattern="[0-9]*" value="${esc(s.reps)}"
-          placeholder="${pr?esc(pr.reps):'–'}" onchange="setV(${i},${j},'reps',this.value)">
+          placeholder="${pr?esc(pr.reps):'–'}" onfocus="clearOnFocus(this,${i},${j},'reps')" oninput="setV(${i},${j},'reps',this.value)" onchange="setV(${i},${j},'reps',this.value)">
         <input type="number" inputmode="decimal" step="0.5" value="${esc(s.peso)}"
           placeholder="${ex.bw?'—':(pr?esc(pr.peso):'–')}" ${ex.bw?'disabled':''}
-          onchange="setV(${i},${j},'peso',this.value)">
+          onfocus="clearOnFocus(this,${i},${j},'peso')" oninput="setV(${i},${j},'peso',this.value)" onchange="setV(${i},${j},'peso',this.value)">
         <button class="del" onclick="rmSet(${i},${j})">✕</button></div>`;
     });
     h+=`<textarea rows="2" style="margin-top:8px;font-size:13px" placeholder="💬 Feedback deste exercício (opcional)"
@@ -4733,6 +4824,13 @@ window.rmTarget=i=>{
   render();
 };
 window.setV=(i,j,k,v)=>{live.exercises[i].sets[j][k]=v};
+// tocar num campo de reps/carga já preenchido = quer alterar: esvazia só esse campo
+// (os outros ficam como estão); o valor anterior continua visível como sugestão (placeholder)
+window.clearOnFocus=(el,i,j,k)=>{
+  if(el.value===''||el.disabled)return;
+  el.value='';
+  setV(i,j,k,'');
+};
 window.setBW=(i,v)=>{
   const ex=live.exercises[i];
   ex.bw=v;
@@ -5461,6 +5559,11 @@ function render(){
   // página em vez de ficar fixo ocupando a tela
   { const hd=document.querySelector('header');
     if(hd)hd.style.position=((view==='session'&&cur)||(view==='msession'&&curM))?'static':''; }
+  // redesenhar a sessão não pode jogar a tela de volta pro topo (perde o lugar do exercício)
+  const inSess=(view==='session'||view==='msession');
+  const keepY=(inSess&&window.__lastRenderView===view)?(window.scrollY||0):null; // só se já estava nela
+  window.__lastRenderView=view;
+  if(keepY!==null)setTimeout(()=>{ if(view===window.__lastRenderView)window.scrollTo(0,keepY); },0);
   if(view==='session'&&cur)session();
   else if(view==='msession'&&curM)mobSession();
   else if(view==='hist')hist();

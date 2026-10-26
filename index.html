@@ -69,6 +69,10 @@ header{position:sticky;top:0;z-index:20;background:var(--bg-blur);
   padding:calc(env(safe-area-inset-top) + 10px) 14px 10px}
 header .hrow{max-width:640px;margin:0 auto;display:flex;align-items:center;gap:10px}
 h1{font-size:19px;margin:0;font-weight:700;letter-spacing:-.3px;flex:1}
+/* nome/nota do treino em sessão: pequeno, 2 linhas; toque para ver tudo */
+h1.ttl-note{font-size:13.5px;font-weight:600;letter-spacing:0;line-height:1.35;cursor:pointer;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+h1.ttl-note.open{display:block;-webkit-line-clamp:unset}
 .sub{font-size:12px;color:var(--dim);font-weight:400}
 button{font-family:inherit;font-size:15px;border:none;border-radius:10px;
   padding:11px 15px;cursor:pointer;background:var(--surface2);color:var(--txt);font-weight:600}
@@ -86,6 +90,7 @@ button:active{opacity:.7}
 input,select,textarea{font-family:inherit;font-size:16px;background:var(--surface2);
   border:1px solid var(--line);border-radius:9px;color:var(--txt);padding:11px;width:100%}
 textarea{resize:vertical;line-height:1.4}
+textarea.ag{resize:none;overflow:hidden;min-height:44px;display:block}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 input:disabled{opacity:.35;background:transparent;border-style:dashed}
 label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:600;
@@ -177,6 +182,8 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   border-bottom:1px solid var(--line);font-size:13.5px}
 .hist-row:last-child{border:none}
 .hist-row span{color:var(--dim);font-size:12.5px}
+.hist-row span.hist-nm{font-weight:500;font-size:12.5px;min-width:0;flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 .pill{display:inline-block;background:var(--surface2);border-radius:6px;
   padding:2px 7px;font-size:11px;color:var(--dim);margin-right:5px}
 .toast{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 90px);left:50%;
@@ -713,7 +720,13 @@ function setModalHTML(html){
   el.innerHTML=html;
   const newBox=el.querySelector('.modal-in');
   if(newBox)newBox.scrollTop=prevScroll;
+  el.querySelectorAll('textarea.ag').forEach(agrow);
 }
+// caixa de texto que cresce junto com o texto (sem rolar pro lado nem por dentro)
+document.addEventListener('click',e=>{const t=e.target;
+  if(t&&t.id==='title'&&t.classList.contains('ttl-note')){window.__ttlOpen=t.classList.toggle('open');}});
+function agrow(t){t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px';}
+document.addEventListener('input',e=>{if(e.target&&e.target.classList&&e.target.classList.contains('ag'))agrow(e.target)});
 
 const toast=m=>{const t=$('toast');t.textContent=m;t.classList.add('on');
   setTimeout(()=>t.classList.remove('on'),1600)};
@@ -1517,6 +1530,9 @@ function drawRunForm(){
         <div class="type-grid" style="--rc2:${rc}">${RUN_TYPES.map(x=>
           `<button class="type-b ${x[0]===RF.type?'on':''}" onclick="rfSet('type','${x[0]}')">
             <span class="te">${x[2]}</span>${x[1]}</button>`).join('')}</div></div>
+      <div class="field"><label>Instruções do treino</label>
+        <textarea class="ag" rows="1" placeholder="Ex: pista, vento forte, 6× 800m a 3'45"
+          oninput="RF.note=this.value">${esc(RF.note)}</textarea></div>
       <div class="field"><label>Data</label>
         <input type="date" value="${dv}" onchange="rfDate(this.value)"></div>
       <div class="field"><label>Preenchimento do tempo</label>
@@ -1645,9 +1661,6 @@ function drawRunForm(){
           class="lvl-b ${RF.level===l[0]?'on':''}" style="--lc:${l[3]};--lbg:${l[3]}22"
           onclick="rfSet('level','${l[0]}')"><span class="le">${l[2]}</span>${l[1]}</button>`).join('')}
       </div></div>
-    <div class="field"><label>Observações</label>
-      <input value="${esc(RF.note)}" placeholder="Ex: pista, vento forte"
-        oninput="RF.note=this.value"></div>
     <div class="field"><label>Feedback do treino</label>
       <textarea rows="3" placeholder="Como foi o treino? Sensações, dificuldades, o que ajustar..."
         oninput="RF.feedback=this.value">${esc(RF.feedback)}</textarea>
@@ -2084,18 +2097,18 @@ function calendar(){
         if(p.kind==='run'){
           const t=rType(p.type);
           h+=`<div class="pl-item" style="--pc2:${t[3]};margin-bottom:7px;padding:10px 11px"
-            data-act="editplan" data-arg="${p.id}">
+            data-act="planview" data-arg="${p.id}">
             <div class="pi"><b>📋 Planejado: ${t[2]} ${t[1]}</b>
               ${p.note?`<span>${esc(p.note)}</span>`:''}</div>
             <span class="pk">${p.km?p.km+' km':''}</span></div>`;
         }else if(p.kind==='mobility'){
           h+=`<div class="pl-item" style="--pc2:#5f9e8f;margin-bottom:7px;padding:10px 11px"
-            data-act="editplan" data-arg="${p.id}">
+            data-act="planview" data-arg="${p.id}">
             <div class="pi"><b>📋 Planejado: 🧘 ${esc(mobPlanLabel(p))}</b>
               ${p.note?`<span>${esc(p.note)}</span>`:''}</div></div>`;
         }else{
           h+=`<div class="pl-item" style="--pc2:var(--accent);margin-bottom:7px;padding:10px 11px"
-            data-act="editplan" data-arg="${p.id}">
+            data-act="planview" data-arg="${p.id}">
             <div class="pi"><b>📋 Planejado: 🏋️ ${esc(gymPlanLabel(p))}</b>
               ${p.note?`<span>${esc(p.note)}</span>`:''}</div></div>`;
         }
@@ -2507,8 +2520,11 @@ window.histDayDetail=arg=>{
 // abre a visualização com o botão de registrar como feito
 function planItemHTML(p){
   const s=planItemHTML0(p);
-  if(p.doneId||planKey(p.date)>=dayKey(Date.now()))return s;
-  return s.replace('class="pl-item ','class="pl-item late ').replace('data-act="editplan"','data-act="planview"');
+  if(p.doneId)return s;
+  // toda tarefa ainda não feita abre a visualização (planPreview); "✎ Editar plano" fica lá dentro
+  const v=s.replace('data-act="editplan"','data-act="planview"');
+  if(planKey(p.date)>=dayKey(Date.now()))return v;
+  return v.replace('class="pl-item ','class="pl-item late ');
 }
 function planItemHTML0(p){
   const act=plDel&&!p.doneId?`onclick="delPlanNow('${p.id}')"`:'';
@@ -2732,7 +2748,7 @@ window.planEdit=id=>{
 // plano "feito" não desfaz na hora, só abre esta tela; desfazer é uma ação
 // separada e explícita aqui dentro (com confirmação).
 window.planDoneDetail=p=>{
-  let nome='Treino', detail='', extra='';
+  let nome='Treino', detail='', extra='', after='';
   try{
     if(p.kind==='run'){
       const t=rType(p.type);
@@ -2760,6 +2776,13 @@ window.planDoneDetail=p=>{
         detail=`<div class="ct2"><span>Duração</span><b>${s.dur?s.dur+' min':'—'}</b></div>
           <div class="ct2"><span>Exercícios</span><b>${s.exercises.length}</b></div>
           <div class="ct2"><span>Volume total</span><b>${Math.round(vol)} kg</b></div>`;
+        // mesma leitura do histórico: exercícios com as séries feitas, feedback de cada um e do treino
+        const hg=exGroups(s.exercises);
+        after=musclesPillHTML(s.muscles)+s.exercises.map((e,ei)=>
+          `<div class="hist-row"><span style="color:var(--txt)">${grpTag(hg[ei])}${esc(e.name)}${eqTag(e)}</span>
+            <span>${e.sets.map(x=>fmtSet(x.reps,x.peso,e.bw)).join(' · ')}</span></div>`
+          +(e.fb?`<div style="font-size:12px;color:var(--dim);line-height:1.45;margin:-2px 0 6px 2px;font-style:italic">💬 ${esc(e.fb)}</div>`:'')
+        ).join('')+fbBox(s.feedback);
       }
     }
   }catch(e){}
@@ -2767,7 +2790,7 @@ window.planDoneDetail=p=>{
     <div class="modal-in">
       <h2 style="margin-bottom:2px">${esc(nome)}</h2>
       <div style="font-size:12.5px;color:var(--dim);margin-bottom:14px">${fdateW(p.date)} · ✓ treino concluído</div>
-      ${detail?`<div class="calc-tot">${detail}${extra}</div>`
+      ${detail?`<div class="calc-tot">${detail}${extra}</div>${after}`
         :'<div class="empty" style="padding:14px 6px">Registro do treino não encontrado (pode ter sido excluído do histórico).</div>'}
       ${p.note?`<div class="field" style="margin-top:12px"><label>Nota do planejamento</label>
         <div style="font-size:13px;color:var(--txt)">${esc(p.note)}</div></div>`:''}
@@ -2955,7 +2978,7 @@ function drawMobPlanForm(){
           ||'<div class="empty" style="padding:10px">Nenhum treino de mobilidade ativo.<br>Crie um em Treinos primeiro.</div>'}
         </div></div>
       <div class="field"><label>Instruções gerais</label>
-        <input value="${esc(PF.note)}" placeholder="Ex: focar na respiração" oninput="PF.note=this.value"></div>`;
+        <textarea class="ag" rows="1" placeholder="Ex: focar na respiração" oninput="PF.note=this.value">${esc(PF.note)}</textarea></div>`;
   if(PF.id&&PF.wid&&dayKey(PF.date)===dayKey(Date.now())){
     h+=`<button class="btn-ghost btn-sm" style="width:100%;color:var(--accent2);border:1px solid rgba(61,220,151,.35);margin-bottom:10px"
       onclick="pfStartMob()">▶ Iniciar este treino agora</button>`;
@@ -3043,7 +3066,7 @@ function drawGymPlanForm(){
     h+=`<button class="btn-ghost btn-sm" style="width:100%;margin-bottom:12px" onclick="pfExAdd()">+ exercício</button>`;
   }
   h+=`<div class="field"><label>Instruções gerais</label>
-        <input value="${esc(PF.note)}" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value"></div>`;
+        <textarea class="ag" rows="1" placeholder="Ex: focar em execução lenta" oninput="PF.note=this.value">${esc(PF.note)}</textarea></div>`;
   // igual ao "✓ Feito" da corrida: em vez de só editar o alvo, dá pra ir direto pra sessão de
   // verdade — pedido explícito do usuário (set/2026) pra treinos importados do PC que ficam
   // registrados só no plano. Só faz sentido no modo PERSONALIZADO: é o único modo em que a
@@ -3079,6 +3102,9 @@ function drawPlanForm(){
         <div class="type-grid" style="--rc2:${rc}">${RUN_TYPES.map(x=>
           `<button class="type-b ${x[0]===PF.type?'on':''}" onclick="pfSet('type','${x[0]}')">
             <span class="te">${x[2]}</span>${x[1]}</button>`).join('')}</div></div>
+      <div class="field"><label>Instruções do treino</label>
+        <textarea class="ag" rows="1" placeholder="Ex: 6× 800m a 3'45 com 2min trote"
+          oninput="PF.note=this.value">${esc(PF.note)}</textarea></div>
       <div class="field"><label>Data</label>
         <input type="date" value="${dv}" onchange="pfDate(this.value)"></div>`;
 
@@ -3207,10 +3233,7 @@ function drawPlanForm(){
           onclick="pfLevel('${l[0]}')"><span class="le">${l[2]}</span>${l[1]}</button>`).join('')}
       </div></div>`;
 
-  h+=`<div class="field"><label>Instruções do treino</label>
-        <input value="${esc(PF.note)}" placeholder="Ex: 6× 800m a 3'45 com 2min trote"
-          oninput="PF.note=this.value"></div>
-      <div class="row">
+  h+=`<div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
         <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
     </div></div>`;
@@ -3585,12 +3608,25 @@ function todayCardHTML(o){
 // visualização do treino planejado (exercícios propostos), com o botão que inicia de verdade
 window.planPreview=id=>{
   const p=plans().find(x=>x.id===id); if(!p)return;
-  if(p.kind==='run'){ planEdit(id); return; } // corrida: o formulário do plano tem "✓ Feito"
+  if(p.doneId)return planDoneDetail(p);
   const late=planKey(p.date)<dayKey(Date.now());
-  const isMob=p.kind==='mobility';
+  const future=planKey(p.date)>dayKey(Date.now());
+  const isMob=p.kind==='mobility', isRun=p.kind==='run';
   const w=p.wid?S.workouts.find(x=>x.id===p.wid):null;
-  let title, items=[];
-  if(isMob){
+  let title, items=[], runBox='';
+  if(isRun){
+    const t=rType(p.type);
+    title=t[2]+' '+t[1]+(p.km?' · '+(+p.km).toFixed(1)+' km':'');
+    const lv=p.level?RUN_LEVELS.find(l=>l[0]===p.level):null;
+    let st=null; try{st=structTotals(p);}catch(e){}
+    const tot=st&&st.sec>0?st.sec:(p.targetSec||0);
+    const rows=[];
+    if(p.km)rows.push(['Distância',(+p.km).toFixed(2)+' km']);
+    if(tot&&p.km)rows.push(['Tempo · pace alvo',fmtDur(tot)+' · '+fmtPace(paceOf(p.km,tot))+'/km']);
+    if(lv)rows.push(['Esforço',lv[2]+' '+lv[1]]);
+    runBox=(rows.length?`<div class="calc-tot">${rows.map(r=>`<div class="ct2"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')}</div>`:'')
+      +structSummary(p);
+  }else if(isMob){
     title='🧘 '+mobPlanLabel(p);
     items=(w?w.exercises:[]).map(e=>({name:e.name,sub:e.desc||''}));
   }else{
@@ -3610,12 +3646,13 @@ window.planPreview=id=>{
     <div class="modal-in">
       <h2>${esc(title)}</h2>
       ${late?`<div style="font-size:12px;color:#e0973f;font-weight:700;margin:-4px 0 10px">⚠️ Planejado para ${fdateW(p.date)} — registrar como feito vai usar essa data (dá pra ajustar na sessão)</div>`:''}
-      ${p.note?`<div style="font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px">${esc(p.note)}</div>`:''}
-      ${items.length?items.map((it,i)=>`<div class="hist-row" style="align-items:flex-start">
+      ${!late?`<div style="font-size:12px;color:var(--dim);margin:-4px 0 10px">${fdateW(p.date)}</div>`:''}
+      ${p.note?`<div style="font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px;white-space:pre-wrap">${esc(p.note)}</div>`:''}
+      ${isRun?runBox:(items.length?items.map((it,i)=>`<div class="hist-row" style="align-items:flex-start">
         <span style="color:var(--txt)">${i+1}. ${esc(it.name)}</span>
         <span style="text-align:right;max-width:55%">${esc(it.sub)}</span></div>`).join('')
-        :'<div class="empty" style="padding:14px 8px">Sem exercícios definidos neste plano.</div>'}
-      <button class="btn-g" style="width:100%;margin-top:14px" onclick="closeM();startPlanToday('${p.id}')">${late?'✓ Registrar como feito':'▶ Iniciar treino'}</button>
+        :'<div class="empty" style="padding:14px 8px">Sem exercícios definidos neste plano.</div>')}
+      ${future?'':`<button class="btn-g" style="width:100%;margin-top:14px" onclick="closeM();startPlanToday('${p.id}')">${late?'✓ Registrar como feito':(isRun?'▶ Registrar corrida':'▶ Iniciar treino')}</button>`}
       <div class="row" style="margin-top:10px">
         <button class="btn-ghost" onclick="closeM()">Fechar</button>
         <button class="btn-ghost" onclick="closeM();planEdit('${p.id}')">✎ Editar plano</button></div>
@@ -3630,7 +3667,7 @@ function todayItemsHTML(){
     const done=!!p.doneId;
     const act=done?`planDoneDetailById('${p.id}')`:`startPlanToday('${p.id}')`;
     // tocar no cartão: ver o treino; só o botão "▶ Iniciar" inicia
-    const view=done?act:(p.kind==='run'?`planEdit('${p.id}')`:`planPreview('${p.id}')`);
+    const view=done?act:`planPreview('${p.id}')`;
     if(p.kind==='run'){
       const t=rType(p.type);
       h+=todayCardHTML({ic:t[2],title:t[1]+(p.km?' · '+(+p.km).toFixed(1)+' km':''),
@@ -4307,6 +4344,8 @@ window.openMobW=id=>{
 };
 function mobSession(){
   $('title').textContent=curM.name;
+  $('title').classList.add('ttl-note');
+  if(window.__ttlOpen)$('title').classList.add('open');
   const l=lastSession(curM.id,'mobility');
   $('sub').textContent=l?'Anterior: '+fdate(l.date):'Primeira sessão';
   $('back').style.display='block';
@@ -4450,6 +4489,8 @@ window.openW=(id,plan)=>{
 };
 function session(){
   $('title').textContent=cur.name;
+  $('title').classList.add('ttl-note');
+  if(window.__ttlOpen)$('title').classList.add('open');
   const l=lastSession(cur.id);
   $('sub').textContent=l?'Anterior: '+fdate(l.date):'Primeira sessão';
   $('back').style.display='block';$('timer').textContent='';
@@ -4941,8 +4982,8 @@ function hist(){
       b+(parseFloat(x.reps)||0)*(parseFloat(x.peso)||0),0),0);
     h+=`<div class="card w-card" ${c?`data-c="1" style="--wc:${c}"`:''}>
       <div class="hist-row" style="cursor:pointer" onclick="toggleHistExp('${s.id}')">
-        <strong>🏋️ ${esc(s.name)}</strong>
-        <span style="display:flex;align-items:center;gap:8px">${fdateW(s.date)}${s.dur?' · '+s.dur+'min':''}
+        <span class="hist-nm">🏋️ ${esc(s.name)}</span>
+        <span style="display:flex;align-items:center;gap:8px;flex:none;margin-left:10px">${fdateW(s.date)}${s.dur?' · '+s.dur+'min':''}
           <span style="transition:transform .2s;transform:rotate(${exp?'180':'0'}deg);display:inline-block">▾</span></span>
       </div>`;
     if(exp){
@@ -5375,6 +5416,7 @@ function render(){
   const inSess=(view==='session'||view==='msession');
   const keepY=(inSess&&window.__lastRenderView===view)?(window.scrollY||0):null; // só se já estava nela
   window.__lastRenderView=view;
+  { const tt=$('title'); if(tt){tt.classList.remove('ttl-note','open'); if(!inSess)window.__ttlOpen=false;} }
   if(keepY!==null)setTimeout(()=>{ if(view===window.__lastRenderView)window.scrollTo(0,keepY); },0);
   if(view==='session'&&cur)session();
   else if(view==='msession'&&curM)mobSession();

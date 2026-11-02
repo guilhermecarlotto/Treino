@@ -396,6 +396,13 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
   display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1.2;text-align:center}
 .lvl-b .le{font-size:18px;line-height:1}
 .lvl-b.on{border-color:var(--lc);color:var(--lc);background:var(--lbg)}
+.lvl-opt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;
+  background:var(--surface2);border:1.5px solid var(--line);border-left:4px solid var(--lc);border-radius:11px;padding:10px 12px}
+.lvl-opt.on{border-color:var(--lc);background:color-mix(in srgb,var(--lc) 16%,var(--surface2))}
+.lvl-opt .le{font-size:24px;line-height:1}
+.lvl-opt .lt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lvl-opt .lt b{font-size:14.5px}
+.lvl-opt .lt i{font-style:normal;font-size:12px;color:var(--dim);font-weight:400;line-height:1.35}
 .lbl-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
 .lbl-row label{margin:0;flex:1}
 .qbtn{background:var(--surface2);color:var(--dim);width:20px;height:20px;padding:0;
@@ -1676,6 +1683,41 @@ function drawRunForm(){
 }
 
 window.closeRF=()=>{RF=null;closeM()};
+// ao finalizar um registro NOVO de corrida, pergunta o nível (teste da fala) — nenhum vem
+// marcado, pra não passar batido o "moderado" padrão — e já pede o feedback do treino
+// (opcional) na mesma tela. Devolve {level,feedback} ou null (voltar).
+let LVQ=null;
+function askRunLevel(){
+  return new Promise(resolve=>{
+    window.__lvlResolve=resolve;
+    LVQ={level:'',feedback:RF.feedback||''};
+    drawLvlAsk();
+  });
+}
+function drawLvlAsk(){
+  $('confirm').innerHTML=`<div class="modal" style="z-index:300;align-items:flex-start;overflow-y:auto" onclick="if(event.target===this)lvlDone(false)">
+    <div class="ask-box" style="margin:auto">
+      <h3>Como foi a corrida?</h3>
+      <p style="margin-bottom:10px">Nível pelo teste da fala: o quanto dava pra conversar durante o treino.</p>
+      ${RUN_LEVELS.map(l=>`<button type="button" class="lvl-opt ${LVQ.level===l[0]?'on':''}" style="--lc:${l[3]}" onclick="lvlSet('${l[0]}')">
+        <span class="le">${l[2]}</span><span class="lt"><b>${l[1]}</b><i>${esc(LEVEL_DESC[l[0]]||'')}</i></span></button>`).join('')}
+      <label style="margin-top:12px">Feedback do treino <span style="text-transform:none;font-weight:400">(opcional)</span></label>
+      <textarea id="lvfb" class="ag" rows="3" placeholder="Sensações, dificuldades, o que ajustar..."
+        oninput="LVQ.feedback=this.value">${esc(LVQ.feedback)}</textarea>
+      <div class="ask-row" style="margin-top:12px">
+        <button type="button" class="btn-ghost" onclick="lvlDone(false)">Voltar</button>
+        <button type="button" class="btn-a" ${LVQ.level?'':'disabled style="opacity:.4"'} onclick="lvlDone(true)">Salvar</button>
+      </div>
+    </div></div>`;
+  const ta=$('lvfb'); if(ta)agrow(ta);
+}
+window.lvlSet=k=>{LVQ.level=k;drawLvlAsk();};
+window.lvlDone=ok=>{
+  if(ok&&!LVQ.level)return toast('Escolha o nível da corrida');
+  $('confirm').innerHTML='';
+  const r=window.__lvlResolve; window.__lvlResolve=null;
+  if(r)r(ok?{level:LVQ.level,feedback:(LVQ.feedback||'').trim()}:null);
+};
 window.saveRun=async()=>{
   const st=structTotals(RF);
   let km,sec;
@@ -1683,6 +1725,11 @@ window.saveRun=async()=>{
   else{km=parseFloat(String(RF.km).replace(',','.'))||0;sec=rfSecs();}
   if(km<=0)return toast('Informe a distância');
   if(sec<=0)return toast('Informe o tempo');
+  if(!RF.id){
+    const lv=await askRunLevel();
+    if(!lv)return;
+    RF.level=lv.level; RF.feedback=lv.feedback;
+  }
   const rec={id:RF.id||uid(),date:RF.date,type:RF.type,km,sec,level:RF.level||'moderado',
     surf:RF.surf||'rua',note:(RF.note||'').trim(),feedback:(RF.feedback||'').trim()};
   if(HAS_WU[RF.type]){
@@ -2898,7 +2945,8 @@ window.savePlan=async()=>{
     }else{ // custom
       const exs=(PF.exercises||[]).filter(e=>(e.name||'').trim());
       if(!exs.length)return toast('Adicione pelo menos um exercício');
-      rec.exercises=exs.map(e=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||''}));
+      rec.exercises=exs.map((e,i)=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||'',
+        link:i>0&&!!e.link}));
     }
     pushUndo(PF.id?'editar plano de musculação':'planejar musculação');
     S.plans=plans().filter(x=>x.id!==rec.id);
@@ -2936,7 +2984,8 @@ window.pfToggleMuscle=m=>{
   drawGymPlanForm();
 };
 window.pfExAdd=()=>{PF.exercises.push({name:'',sets:'',reps:'',note:''});drawGymPlanForm();};
-window.pfExDel=i=>{PF.exercises.splice(i,1);drawGymPlanForm();};
+window.pfExDel=i=>{PF.exercises.splice(i,1);if(PF.exercises[0])PF.exercises[0].link=false;drawGymPlanForm();};
+window.pfExLink=i=>{if(PF.exercises[i])PF.exercises[i].link=!PF.exercises[i].link;drawGymPlanForm();};
 
 function gymPlanLabel(p){
   if(p.mode==='muscles'){
@@ -3043,9 +3092,13 @@ function drawGymPlanForm(){
         Sem exercícios definidos — só o foco do treino, pra decidir os exercícios na hora.</p>`;
   }else{ // custom
     h+=`<div class="field"><label>Exercícios</label></div>`;
+    const pgi=exGroups(PF.exercises);
     PF.exercises.forEach((e,i)=>{
-      h+=`<div class="blk">
+      if(i>0)h+=`<div style="text-align:center;margin:-2px 0 6px"><button type="button" class="btn-ghost btn-sm"
+        style="${e.link?'color:#5b8def;border-color:rgba(91,141,239,.5)':''}" onclick="pfExLink(${i})">${e.link?'🔗 conjugado com o anterior':'+ conjugar com o anterior'}</button></div>`;
+      h+=`<div class="blk" ${pgi[i]?'style="border-left:3px solid #5b8def"':''}>
         <div class="blk-h">
+          ${pgi[i]?`<span style="font-size:11px;font-weight:800;color:#5b8def;margin-right:6px">${GRP_LETTER(pgi[i].gi)}${pgi[i].pos}</span>`:''}
           <input value="${esc(e.name)}" placeholder="Nome do exercício"
             style="flex:1;background:transparent;border:none;color:var(--txt);font-size:13.5px;font-weight:700;padding:0"
             oninput="pfExSet(${i},'name',this.value)">
@@ -3272,7 +3325,7 @@ window.pfStartCustom=()=>{
   if(!exs.length)return toast('Preencha ao menos um exercício');
   const plan=PF.id?plans().find(x=>x.id===PF.id):null;
   const wk={id:uid(),name:(PF.note||'').trim()||'Treino personalizado',
-    exercises:exs.map(e=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:false})),
+    exercises:exs.map((e,i)=>({name:e.name.trim(),sets:e.sets||'',reps:e.reps||'',note:e.note||'',link:i>0&&!!e.link})),
     adhoc:true,archived:false};
   S.workouts.push(wk);
   PF=null;closeM();
@@ -3632,16 +3685,17 @@ window.planPreview=id=>{
   }else{
     title='🏋️ '+gymPlanLabel(p);
     if(p.mode==='custom'){
-      items=(p.exercises||[]).filter(e=>(e.name||'').trim()).map(e=>({name:e.name,
+      items=(p.exercises||[]).filter(e=>(e.name||'').trim()).map(e=>({name:e.name,link:!!e.link,
         sub:[(e.sets||e.reps)?`${e.sets||'?'}× ${e.reps||'?'}`:'',e.note||''].filter(Boolean).join(' · ')}));
     }else if(p.mode==='muscles'){
       items=(p.muscles||[]).map(m=>{const g=muscleG(m);return{name:g?g[2]+' '+g[1]:m,sub:''};});
     }else if(w){
       items=w.exercises.map(e=>{const tg=(p.targets&&p.targets[e.name])||{};
         const sets=tg.sets||e.sets, reps=tg.reps||e.reps, note=tg.note||e.note;
-        return{name:e.name,sub:[(sets||reps)?`${sets||'?'}× ${reps||'?'}`:'',note||''].filter(Boolean).join(' · ')};});
+        return{name:e.name,link:!!e.link,sub:[(sets||reps)?`${sets||'?'}× ${reps||'?'}`:'',note||''].filter(Boolean).join(' · ')};});
     }
   }
+  const pvg=exGroups(items);
   $('modal').innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()">
     <div class="modal-in">
       <h2>${esc(title)}</h2>
@@ -3649,7 +3703,7 @@ window.planPreview=id=>{
       ${!late?`<div style="font-size:12px;color:var(--dim);margin:-4px 0 10px">${fdateW(p.date)}</div>`:''}
       ${p.note?`<div style="font-size:12.5px;color:var(--dim);line-height:1.5;margin:-4px 0 12px;white-space:pre-wrap">${esc(p.note)}</div>`:''}
       ${isRun?runBox:(items.length?items.map((it,i)=>`<div class="hist-row" style="align-items:flex-start">
-        <span style="color:var(--txt)">${i+1}. ${esc(it.name)}</span>
+        <span style="color:var(--txt)">${i+1}. ${grpTag(pvg[i])}${esc(it.name)}</span>
         <span style="text-align:right;max-width:55%">${esc(it.sub)}</span></div>`).join('')
         :'<div class="empty" style="padding:14px 8px">Sem exercícios definidos neste plano.</div>')}
       ${future?'':`<button class="btn-g" style="width:100%;margin-top:14px" onclick="closeM();startPlanToday('${p.id}')">${late?'✓ Registrar como feito':(isRun?'▶ Registrar corrida':'▶ Iniciar treino')}</button>`}

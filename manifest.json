@@ -1,7 +1,7 @@
 {
   "name": "Treinos",
   "short_name": "Treinos",
-  "description": "App de treinos de musculacao e corrida",
+  "description": "App de treinos: musculação, corrida e mobilidade",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "./",

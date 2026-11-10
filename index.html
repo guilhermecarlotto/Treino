@@ -527,6 +527,10 @@ label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px;font-weight:6
 .late-box{border:1px solid rgba(224,151,63,.55);background:rgba(224,151,63,.08);border-radius:13px;padding:12px 13px;margin-bottom:12px}
 .late-box .lb-h{font-size:13.5px;font-weight:800;color:#e0973f;margin-bottom:3px}
 .late-box .lb-s{font-size:11.5px;color:var(--dim);line-height:1.45;margin-bottom:8px}
+.draft-box{border:1px solid rgba(91,141,239,.55);background:rgba(91,141,239,.09);border-radius:13px;padding:12px 13px;margin:14px 0 12px}
+.draft-box .lb-h{font-size:13.5px;font-weight:800;color:#5b8def;margin-bottom:3px}
+.draft-box .lb-s{font-size:12px;color:var(--dim);line-height:1.5;margin-bottom:10px}
+.draft-btns{display:flex;flex-wrap:wrap;gap:8px}
 .late-box .lb-i{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid var(--line);cursor:pointer;font-size:13px}
 .late-box .lb-i b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .late-box .lb-i i{font-style:normal;color:var(--dim);font-size:11.5px;flex:none}
@@ -840,6 +844,7 @@ async function load(){
     }
   }
   normalizeS();
+  await draftsInit();
   render();
   cloudSync(); // sem internet: fica só no aparelho e sincroniza quando a conexão voltar
 }
@@ -1222,16 +1227,8 @@ function drawTabs(){
       <span class="ti" style="position:relative">${ic}</span>${l}</button>`}).join('');
 }
 window.goTab=async v=>{
-  if(view==='session'){
-    const has=live&&live.exercises.some(e=>e.sets.some(s=>s.reps||s.peso));
-    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
-    clearInterval(tick);
-    await cleanupAdhoc();
-  }else if(view==='msession'){
-    const has=liveM&&liveM.exercises.some(e=>e.done);
-    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
-    clearInterval(tickM);
-    await cleanupAdhoc();
+  if(view==='session'||view==='msession'){
+    if(!await leaveSession())return;
   }
   if(v==='home')view='home';
   else if(v==='plan'){
@@ -1486,7 +1483,7 @@ function syncShots(){
   while(RF.shots.length<n)RF.shots.push({km:'',m:'',s:'',rm:'',rs:''});
   RF.shots.length=n;
 }
-window.rfSet=(k,v)=>{RF[k]=v;if(k==='type'&&RB_TYPES[v]&&!(RF.blocks&&RF.blocks.length>1))RF.blocks=null;if(k==='type')syncShots();drawRunForm()};
+window.rfSet=(k,v)=>{RF[k]=v;if(k==='type'&&RB_TYPES[v]&&!(RF.blocks&&RF.blocks.length>1))RF.blocks=null;if(k==='type'){RF.rbMode=null;RF.marks=null;syncShots();}drawRunForm()};
 
 // --- rodagem intercalando corrida e caminhada (run-walk) ---
 
@@ -1525,7 +1522,90 @@ window.rfReps=n=>{
 // depois de digitar num bloco: atualiza a soma (km/h/m/s), o resumo de cada bloco e a caixa de
 // totais — sem redesenhar o formulário (senão o campo perde o foco a cada tecla)
 
+/* ---------- RODAGEM POR TROCAS DE VELOCIDADE (esteira) ----------
+   Em vez de calcular a distância de cada trecho, anota-se o km da esteira em que a velocidade
+   mudou. O app converte em blocos (mesmo formato de sempre: histórico, metas e relatórios não mudam). */
+const numv=v=>parseFloat(String(v==null?'':v).replace(',','.'))||0;
+function rfMarksFromBlocks(){
+  const bs=(RF.blocks||[]).filter(b=>blkKm(b)||rbSec(b));
+  if(!bs.length){RF.marks=[{at:'0',v:''}];RF.endKm='';return;}
+  let cum=0;
+  RF.marks=bs.map(b=>{const sp=speedOf(blkKm(b),rbSec(b));
+    const m={at:String(+cum.toFixed(3)),v:sp?String(+sp.toFixed(1)):''}; cum+=blkKm(b); return m;});
+  RF.endKm=String(+cum.toFixed(3));
+}
+function rfMarksApply(){
+  const M=RF.marks||[], end=numv(RF.endKm), bs=[];
+  M.forEach((m,i)=>{
+    const a=i===0?0:numv(m.at), b=i+1<M.length?numv(M[i+1].at):end;
+    const km=Math.max(0,b-a), v=numv(m.v);
+    const sec=v>0?Math.round(km/v*3600):0;
+    if(km>0)bs.push({km:String(+km.toFixed(3)),h:Math.floor(sec/3600),m:Math.floor((sec%3600)/60),s:sec%60});
+  });
+  RF.blocks=bs.length?bs:[rbBlank()];
+  rbSync(RF);
+}
+function rfMarksInfo(){
+  const el=$('mk-list'); if(!el)return;
+  const M=RF.marks||[], end=numv(RF.endKm); let rows=[], warn='';
+  M.forEach((m,i)=>{
+    const a=i===0?0:numv(m.at), b=i+1<M.length?numv(M[i+1].at):end, v=numv(m.v);
+    if(b<a)warn='⚠️ Os km precisam estar em ordem crescente (e menores que o km final).';
+    const km=Math.max(0,b-a);
+    if(km>0&&v>0)rows.push(`<b>${a.toFixed(2)} → ${b.toFixed(2)} km</b> · ${v.toFixed(1)} km/h · ${fmtDur(Math.round(km/v*3600))} · ${fmtPace(3600/v)}/km`);
+  });
+  let cmp='';
+  const st=structTotals(RF);
+  if(RF.ref&&st&&st.km>0&&st.sec>0&&RF.ref.sec>0&&RF.ref.km>0){
+    cmp=`<br>Plano: ${fmtPace(paceOf(RF.ref.km,RF.ref.sec))}/km · Real: ${fmtPace(paceOf(st.km,st.sec))}/km`;
+  }
+  el.innerHTML=(warn?`<span style="color:#e0973f">${warn}</span><br>`:'')+(rows.join('<br>')||'<span style="color:var(--dim)">Preencha a velocidade inicial e o km final.</span>')+cmp;
+}
+function marksHTML(){
+  if(!RF.marks)rfMarksFromBlocks();
+  const M=RF.marks;
+  let h=`<div class="blk"><div class="blk-h"><span class="bi">🏃</span><span class="bt">Parte principal</span>
+      <span class="bs">trocas de velocidade</span></div>
+    <div style="font-size:11.5px;color:var(--dim);line-height:1.5;margin-bottom:8px">Anote o km da esteira em que você mudou de
+      velocidade. O app calcula cada trecho, o tempo e o pace.</div>`;
+  M.forEach((m,i)=>{
+    h+=`<div class="mini-row" style="align-items:flex-end;margin-bottom:6px">`;
+    if(i===0){
+      h+=`<div class="mini-f"><label>Começou a (km/h)</label>
+        <input type="number" inputmode="decimal" step="0.1" value="${esc(m.v)}" placeholder="8.6" oninput="mkSet(0,'v',this.value)"></div>`;
+    }else{
+      h+=`<div class="mini-f"><label>Aos (km)</label>
+          <input type="number" inputmode="decimal" step="0.01" value="${esc(m.at)}" placeholder="2.10" oninput="mkSet(${i},'at',this.value)"></div>
+        <div class="mini-f"><label>Passei para (km/h)</label>
+          <input type="number" inputmode="decimal" step="0.1" value="${esc(m.v)}" placeholder="8.8" oninput="mkSet(${i},'v',this.value)"></div>
+        <button type="button" class="btn-ghost btn-sm" style="flex:none;color:#ff5a5a" title="Remover" onclick="mkDel(${i})">✕</button>`;
+    }
+    h+=`</div>`;
+  });
+  h+=`<button type="button" class="rb-add" onclick="mkAdd()">+ Troquei de velocidade</button>
+    <div class="field" style="margin-top:10px"><label>Terminei com (km)</label>
+      <input type="number" inputmode="decimal" step="0.01" value="${esc(RF.endKm)}" placeholder="6.00" oninput="mkEnd(this.value)"></div>
+    <div id="mk-list" class="struct" style="margin-top:4px;line-height:1.7"></div></div>`;
+  return h;
+}
+window.rfRbMode=m=>{
+  RF.rbMode=m;
+  try{localStorage.setItem('treinos-rbmode',m);}catch(e){}
+  if(m==='marks'){rfMarksFromBlocks();rfMarksApply();}
+  drawRunForm();
+};
+window.mkSet=(i,k,v)=>{RF.marks[i][k]=v;rfMarksApply();rfMarksInfo();updPace();};
+window.mkEnd=v=>{RF.endKm=v;rfMarksApply();rfMarksInfo();updPace();};
+window.mkAdd=()=>{RF.marks.push({at:'',v:''});drawRunForm();};
+window.mkDel=i=>{if(i>0)RF.marks.splice(i,1);rfMarksApply();drawRunForm();};
 function drawRunForm(){
+  if(RB_TYPES[RF.type]&&!RF.rbMode){
+    rbEnsure(RF);
+    let pref='marks'; try{pref=localStorage.getItem('treinos-rbmode')||'marks';}catch(e){}
+    // registro já salvo, ou plano com vários blocos: abre nos blocos (não há "trocas" gravadas)
+    RF.rbMode=(RF.id||(RF.blocks&&RF.blocks.filter(b=>blkKm(b)||rbSec(b)).length>1))?'blocks':pref;
+    if(RF.rbMode==='marks'){rfMarksFromBlocks();rfMarksApply();}
+  }
   const d=new Date(RF.date);
   const dv=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const rc=rType(RF.type)[3];
@@ -1533,6 +1613,8 @@ function drawRunForm(){
   let h=`<div class="modal" onclick="if(event.target===this)closeRF()">
     <div class="modal-in">
       <h2>${RF.id?'Editar':'Registrar'} corrida</h2>
+      ${RF.ref?`<div style="font-size:12px;color:var(--dim);line-height:1.5;margin:-4px 0 12px;padding:8px 10px;border:1px dashed var(--line);border-radius:9px">
+        📋 <b style="color:var(--txt)">Planejado:</b> ${RF.ref.km.toFixed(2)} km${RF.ref.sec?` · ${fmtDur(RF.ref.sec)} · ${fmtPace(paceOf(RF.ref.km,RF.ref.sec))}/km`:''}${RF.ref.fc?` · FC alvo ${esc(RF.ref.fc)}`:''}</div>`:''}
       <div class="field"><label>Tipo de treino</label>
         <div class="type-grid" style="--rc2:${rc}">${RUN_TYPES.map(x=>
           `<button class="type-b ${x[0]===RF.type?'on':''}" onclick="rfSet('type','${x[0]}')">
@@ -1542,12 +1624,12 @@ function drawRunForm(){
           oninput="RF.note=this.value">${esc(RF.note)}</textarea></div>
       <div class="field"><label>Data</label>
         <input type="date" value="${dv}" onchange="rfDate(this.value)"></div>
-      <div class="field"><label>Preenchimento do tempo</label>
+      ${RB_TYPES[t]&&RF.rbMode==='marks'?'':`<div class="field"><label>Preenchimento do tempo</label>
         <div class="seg seg3">
           <button class="${RF.tmode==='speed'?'on':''}" onclick="rfSet('tmode','speed')">km/h</button>
           <button class="${RF.tmode==='pace'?'on':''}" onclick="rfSet('tmode','pace')">Pace</button>
           <button class="${RF.tmode==='time'?'on':''}" onclick="rfSet('tmode','time')">Tempo</button>
-        </div></div>`;
+        </div></div>`}`;
 
   if(structured){
     h+=blkHTML(RF,'rfBlk','wu','🔸','Aquecimento');
@@ -1628,7 +1710,10 @@ function drawRunForm(){
             </div></div>`}</div></div>`;
     }else{ // limiar, rodagem, regenerativo e longão: parte principal em blocos — um por padrão
       rbEnsure(RF);
-      h+=rbListHTML(RF,'rf',false,false);
+      h+=`<div class="seg" style="margin-bottom:10px">
+          <button class="${RF.rbMode==='marks'?'on':''}" onclick="rfRbMode('marks')">Trocas de velocidade</button>
+          <button class="${RF.rbMode==='marks'?'':'on'}" onclick="rfRbMode('blocks')">Por trecho (blocos)</button></div>`;
+      h+=RF.rbMode==='marks'?marksHTML():rbListHTML(RF,'rf',false,false);
     }
     h+=blkHTML(RF,'rfBlk','cd','🔹','Desaquecimento');
     h+=`<div class="calc-tot" id="calcbox"></div>`;
@@ -1668,6 +1753,8 @@ function drawRunForm(){
           class="lvl-b ${RF.level===l[0]?'on':''}" style="--lc:${l[3]};--lbg:${l[3]}22"
           onclick="rfSet('level','${l[0]}')"><span class="le">${l[2]}</span>${l[1]}</button>`).join('')}
       </div></div>
+    <div class="field"><label>FC alvo (bpm) <span style="text-transform:none;font-weight:400">(opcional)</span></label>
+      <input type="text" value="${esc(RF.fc||'')}" placeholder="Ex: 140-145" oninput="RF.fc=this.value"></div>
     <div class="field"><label>Feedback do treino</label>
       <textarea rows="3" placeholder="Como foi o treino? Sensações, dificuldades, o que ajustar..."
         oninput="RF.feedback=this.value">${esc(RF.feedback)}</textarea>
@@ -1680,6 +1767,7 @@ function drawRunForm(){
   </div></div>`;
   setModalHTML(h);
   updPace();
+  if(RB_TYPES[RF.type]&&RF.rbMode==='marks')rfMarksInfo();
 }
 
 window.closeRF=()=>{RF=null;closeM()};
@@ -1732,6 +1820,7 @@ window.saveRun=async()=>{
   }
   const rec={id:RF.id||uid(),date:RF.date,type:RF.type,km,sec,level:RF.level||'moderado',
     surf:RF.surf||'rua',note:(RF.note||'').trim(),feedback:(RF.feedback||'').trim()};
+  if((RF.fc||'').trim())rec.fc=RF.fc.trim();
   if(HAS_WU[RF.type]){
     rec.wu=RF.wu; rec.cd=RF.cd;
     if(RF.type==='inter'){rec.reps=RF.reps;rec.shots=RF.shots;}
@@ -1771,6 +1860,7 @@ window.runMenu=id=>{
       </div>
       ${structSummary(r).replace('class="struct"','class="struct" style="margin-bottom:14px;border-top:none;padding-top:0"')}
       ${r.note?`<div style="font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:14px">${esc(r.note)}</div>`:''}
+      ${r.fc?`<div style="font-size:12.5px;color:var(--dim);margin-bottom:10px">FC alvo: <b style="color:var(--txt)">${esc(r.fc)} bpm</b></div>`:''}
       ${fbBox(r.feedback)}
       <button class="menu-item" style="margin-top:14px" onclick="closeM();runForm('${id}')"><span class="ic">✎</span>Editar registro</button>
       <button class="menu-item danger" onclick="delRun('${id}')"><span class="ic">🗑</span>Excluir registro</button>
@@ -2920,6 +3010,7 @@ window.savePlan=async()=>{
     const rec={id:PF.id||uid(),kind:'run',date:PF.date,type:PF.type,km,
       note:(PF.note||'').trim()};
     if(PF.level)rec.level=PF.level;
+    if((PF.fc||'').trim())rec.fc=PF.fc.trim();
     if(HAS_WU[PF.type]){
       rec.wu=PF.wu; rec.cd=PF.cd;
       if(PF.type==='inter'){rec.reps=PF.reps;rec.shots=PF.shots;}
@@ -3286,7 +3377,10 @@ function drawPlanForm(){
           onclick="pfLevel('${l[0]}')"><span class="le">${l[2]}</span>${l[1]}</button>`).join('')}
       </div></div>`;
 
-  h+=`<div class="row">
+  h+=`<div class="field"><label>FC alvo (bpm) <span style="text-transform:none;font-weight:400">(opcional)</span></label>
+        <input type="text" value="${esc(PF.fc||'')}" placeholder="Ex: 140-145"
+          oninput="PF.fc=this.value"></div>
+      <div class="row">
         <button class="btn-ghost" onclick="closePF()">Cancelar</button>
         <button style="background:#5b8def;color:#fff" onclick="savePlan()">Salvar</button></div>
     </div></div>`;
@@ -3308,9 +3402,11 @@ window.pfDone=()=>{
     note:p.note||'',feedback:'',wu:p.wu||blank(),cd:p.cd||blank(),reps:p.reps||6,
     shots:p.shots||[],fk:p.fk||{on:blank(),off:blank()},tmode:'speed',
     rwMode:p.rwMode||'off',rw:p.rw||{run:blank(),walk:blank()},rwReps:p.rwReps||6,
-    blocks:p.blocks||null};
+    blocks:p.blocks||null,fc:p.fc||''};
   rbFromRunWalk(RF); rbEnsure(RF); if(RF.blocks)rbSync(RF);
   syncShots();
+  // referência do que foi planejado, mostrada no topo do registro (não é salva no registro)
+  try{const st=structTotals(p); if(st)RF.ref={km:st.km,sec:st.sec,fc:p.fc||'',level:p.level||''};}catch(e){}
   drawRunForm();
 };
 // "▶ Executar" (musculação, modo Personalizado): sai do formulário de plano e abre
@@ -3677,6 +3773,7 @@ window.planPreview=id=>{
     if(p.km)rows.push(['Distância',(+p.km).toFixed(2)+' km']);
     if(tot&&p.km)rows.push(['Tempo · pace alvo',fmtDur(tot)+' · '+fmtPace(paceOf(p.km,tot))+'/km']);
     if(lv)rows.push(['Esforço',lv[2]+' '+lv[1]]);
+    if(p.fc)rows.push(['FC alvo',p.fc+' bpm']);
     runBox=(rows.length?`<div class="calc-tot">${rows.map(r=>`<div class="ct2"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')}</div>`:'')
       +structSummary(p);
   }else if(isMob){
@@ -3757,6 +3854,7 @@ function home(){
   $('back').style.display='none'; $('timer').textContent='';
   let h=ringsHTML();
   h+=`<div class="motiva"><span class="mq">“</span>${esc(motivaHoje())}</div>`;
+  h+=draftsBannerHTML();
   const late=latePlans();
   if(late.length){
     h+=`<div class="late-box" style="margin-top:14px">
@@ -4496,11 +4594,11 @@ window.confirmAddExMob=async()=>{
   toast(once?'Exercício adicionado só nesta sessão':'Exercício adicionado ao treino');
 };
 window.setMobDone=(i,v)=>{liveM.exercises[i].done=v};
-window.finishMob=async()=>{
+window.finishMob=async(noAsk)=>{
   const ex=liveM.exercises.filter(e=>e.done).map(e=>({name:e.name,desc:e.desc}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhum exercício foi marcado como feito.','Sair',true))return;
     clearInterval(tickM);await cleanupAdhoc();view='home';render();return;}
-  if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
+  if(noAsk!==true&&!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
   pushUndo('concluir treino de mobilidade');
   const sec=Math.floor((Date.now()-t0M)/1000);
   const sid=uid();
@@ -4512,8 +4610,156 @@ window.finishMob=async()=>{
   // vincula ao plano
   const pl=matchPlan('mobility',liveM.date,{wid:liveM.wid});
   if(pl&&!pl.doneId)pl.doneId=sid;
-  await save();clearInterval(tickM);view='home';render();toast('Treino salvo ✓');
+  await save();clearInterval(tickM);draftClear(liveM.sid);view='home';render();toast('Treino salvo ✓');
+  return true;
 };
+
+/* ---------- RASCUNHO DO TREINO EM ANDAMENTO ----------
+   O treino aberto (musculação ou mobilidade) só ia pro histórico no "Finalizar"; se o app fosse
+   fechado/recarregado antes, tudo se perdia. Agora cada alteração é guardada no aparelho
+   (localStorage + IndexedDB) e, enquanto não for finalizado, aparece um aviso na aba Treinos com
+   Continuar / Salvar no histórico / Descartar. Fica só neste aparelho (não vai pra nuvem). */
+const DR_KEY='treinos-drafts-v1';
+let DRAFTS=[];
+async function draftsInit(){
+  let a=null;
+  try{const r=localStorage.getItem(DR_KEY); if(r)a=JSON.parse(r);}catch(e){}
+  if(!Array.isArray(a)){
+    try{const r=await idbGet(DR_KEY); if(r)a=JSON.parse(r);}catch(e){}
+  }
+  DRAFTS=Array.isArray(a)?a:[];
+}
+function drWrite(){
+  const raw=JSON.stringify(DRAFTS);
+  try{localStorage.setItem(DR_KEY,raw);}catch(e){}
+  try{idbSet(DR_KEY,raw).catch(()=>{});}catch(e){}
+}
+const drHasGym=l=>!!l&&(l.exercises||[]).some(e=>e.sets.some(s=>s.reps!==''||s.peso!==''));
+const drHasMob=l=>!!l&&(l.exercises||[]).some(e=>e.done);
+function draftCurrent(){
+  if(view==='session'&&cur&&live)return{kind:'gym',live,cur,t:t0};
+  if(view==='msession'&&curM&&liveM)return{kind:'mob',live:liveM,cur:curM,t:t0M};
+  return null;
+}
+function draftSave(){
+  const c=draftCurrent(); if(!c)return;
+  if(!c.live.sid)c.live.sid=uid();
+  const has=c.kind==='gym'?drHasGym(c.live):drHasMob(c.live);
+  const i=DRAFTS.findIndex(d=>d.sid===c.live.sid);
+  if(!has){ if(i>=0){DRAFTS.splice(i,1);drWrite();} return; }
+  const snap=JSON.stringify(c.live);
+  const prev=i>=0?DRAFTS[i]:null;
+  if(prev&&JSON.stringify(prev.live)===snap)return; // nada mudou
+  const e={sid:c.live.sid,kind:c.kind,t0:c.t,lastEdit:Date.now(),live:JSON.parse(snap),
+    cur:JSON.parse(JSON.stringify(c.cur))};
+  if(i>=0)DRAFTS[i]=e; else DRAFTS.push(e);
+  if(DRAFTS.length>6){DRAFTS.sort((a,b)=>b.lastEdit-a.lastEdit);DRAFTS.length=6;}
+  drWrite();
+}
+function draftClear(sid){
+  if(!sid)return;
+  const i=DRAFTS.findIndex(d=>d.sid===sid);
+  if(i>=0){DRAFTS.splice(i,1);drWrite();}
+}
+let drTimer=null;
+function draftSoon(){clearTimeout(drTimer);drTimer=setTimeout(draftSave,500);}
+['input','change','click','touchend'].forEach(ev=>document.addEventListener(ev,()=>{
+  if(view==='session'||view==='msession')draftSoon();
+},true));
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){clearTimeout(drTimer);draftSave();}
+});
+window.addEventListener('pagehide',()=>{clearTimeout(drTimer);draftSave();});
+
+// põe o rascunho de volta nas variáveis da sessão. Parado há mais de 3h, o relógio considera só
+// o tempo até a última alteração (senão a duração do treino sairia com horas a mais).
+function draftApply(d,run){
+  const idle=Date.now()-d.lastEdit>3*3600000;
+  const start=idle?Date.now()-(d.lastEdit-d.t0):d.t0;
+  ordMode=false;
+  if(d.kind==='gym'){
+    cur=S.workouts.find(w=>w.id===d.live.wid)||d.cur;
+    live=JSON.parse(JSON.stringify(d.live)); t0=start;
+    clearInterval(tick); view='session';
+  }else{
+    curM=S.workouts.find(w=>w.id===d.live.wid)||d.cur;
+    liveM=JSON.parse(JSON.stringify(d.live)); t0M=start;
+    clearInterval(tickM);
+    if(run)tickM=setInterval(()=>{
+      const el=$('timer');
+      if(el)el.textContent=fmtDur(Math.floor((Date.now()-t0M)/1000));
+    },1000);
+    view='msession';
+  }
+}
+window.draftResume=sid=>{
+  const d=DRAFTS.find(x=>x.sid===sid); if(!d)return;
+  draftApply(d,true); render();
+};
+window.draftSaveHist=async sid=>{
+  const d=DRAFTS.find(x=>x.sid===sid); if(!d)return;
+  draftApply(d,false);
+  const ok=d.kind==='gym'?await finish():await finishMob();
+  if(!ok){view='home';render();}
+};
+window.draftDiscard=async sid=>{
+  if(!await ask('Descartar treino?','As séries preenchidas deste treino não finalizado serão apagadas. Isso não pode ser desfeito.','Descartar',true))return;
+  draftClear(sid); render();
+};
+function draftsBannerHTML(){
+  if(!DRAFTS.length)return '';
+  return DRAFTS.slice().sort((a,b)=>b.lastEdit-a.lastEdit).map(d=>{
+    const l=d.live, gym=d.kind==='gym';
+    const n=gym?l.exercises.reduce((a,e)=>a+e.sets.filter(s=>s.reps!==''||s.peso!=='').length,0)
+      :l.exercises.filter(e=>e.done).length;
+    const info=gym?`${n} série${n>1?'s':''} preenchida${n>1?'s':''}`:`${n} exercício${n>1?'s':''} feito${n>1?'s':''}`;
+    return `<div class="draft-box">
+      <div class="lb-h">⏸ Treino não finalizado</div>
+      <div class="lb-s"><b style="color:var(--txt)">${esc(l.name||'Treino')}</b> · ${fdateW(l.date)} · ${info}.
+        Se já terminou, salve no histórico — a data do treino é mantida.</div>
+      <div class="draft-btns">
+        <button class="btn-a btn-sm" onclick="draftResume('${d.sid}')">▶ Continuar</button>
+        <button class="btn-g btn-sm" onclick="draftSaveHist('${d.sid}')">✓ Salvar no histórico</button>
+        <button class="btn-ghost btn-sm" style="color:#ff5a5a" onclick="draftDiscard('${d.sid}')">Descartar</button>
+      </div></div>`;
+  }).join('');
+}
+// saindo de uma sessão com algo preenchido: salvar, deixar pra depois (mantém o rascunho) ou descartar
+function askLeave(){
+  return new Promise(resolve=>{
+    window.__leaveResolve=resolve;
+    $('confirm').innerHTML=`<div class="modal" style="z-index:300;align-items:center" onclick="if(event.target===this)leaveDone(null)">
+      <div class="ask-box">
+        <h3>Sair do treino?</h3>
+        <p>Há séries preenchidas. O que fazer com este treino?</p>
+        <button type="button" class="btn-g" style="width:100%;margin-bottom:8px" onclick="leaveDone('save')">✓ Finalizar e salvar no histórico</button>
+        <button type="button" class="btn-a" style="width:100%;margin-bottom:8px" onclick="leaveDone('later')">Sair e continuar depois</button>
+        <button type="button" class="btn-ghost" style="width:100%;margin-bottom:8px;color:#ff5a5a" onclick="leaveDone('discard')">Descartar treino</button>
+        <button type="button" class="btn-ghost" style="width:100%" onclick="leaveDone(null)">Voltar ao treino</button>
+      </div></div>`;
+  });
+}
+window.leaveDone=v=>{
+  $('confirm').innerHTML='';
+  const r=window.__leaveResolve; window.__leaveResolve=null;
+  if(r)r(v);
+};
+// devolve true quando pode sair da tela de sessão (e já deixou tudo resolvido)
+async function leaveSession(){
+  const gym=view==='session', l=gym?live:liveM;
+  const stop=()=>clearInterval(gym?tick:tickM);
+  if(!(gym?drHasGym(l):drHasMob(l))){
+    stop(); draftClear(l&&l.sid); await cleanupAdhoc(); return true;
+  }
+  const r=await askLeave();
+  if(r==='save')return !!(gym?await finish(true):await finishMob(true));
+  if(r==='later'){clearTimeout(drTimer);draftSave();stop();return true;}
+  if(r==='discard'){
+    if(!await ask('Descartar treino?','As séries preenchidas serão apagadas. Isso não pode ser desfeito.','Descartar',true))return false;
+    stop(); draftClear(l.sid); await cleanupAdhoc(); return true;
+  }
+  return false;
+}
 
 /* ---------- SESSÃO ---------- */
 window.openW=(id,plan)=>{
@@ -4824,7 +5070,7 @@ function doSwapEx(name){
   closeM();render();
   toast('Exercício trocado — vale só para hoje');
 }
-window.finish=async()=>{
+window.finish=async(noAsk)=>{
   // guarda o índice original para não deixar um conjugado "órfão" quando o
   // exercício de cima da dupla não foi preenchido e some do registro
   const kept=live.exercises.map((e,idx)=>({e,idx,
@@ -4837,7 +5083,7 @@ window.finish=async()=>{
     sets:x.sets}));
   if(!ex.length){if(!await ask('Sair sem salvar?','Nenhuma série foi preenchida neste treino.','Sair',true))return;
     clearInterval(tick);await cleanupAdhoc();view='home';render();return;}
-  if(!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
+  if(noAsk!==true&&!await ask('Finalizar treino?','Isso salva o treino no histórico como concluído.','Finalizar',false))return;
   pushUndo('concluir treino de musculação');
   const dur=Math.floor((Date.now()-t0)/60000);
   const sid=uid();
@@ -4850,7 +5096,8 @@ window.finish=async()=>{
   const pl=live.planId?plans().find(p=>p.id===live.planId)
     :matchPlan('gym',live.date,{wid:live.wid});
   if(pl&&!pl.doneId)pl.doneId=sid;
-  await save();clearInterval(tick);view='home';render();toast('Treino salvo ✓');
+  await save();clearInterval(tick);draftClear(live.sid);view='home';render();toast('Treino salvo ✓');
+  return true;
 };
 
 /* ---------- HISTÓRICO ---------- */
@@ -5491,17 +5738,8 @@ function render(){
   if(view!=='session'&&view!=='msession')drawTabs();
 }
 $('back').onclick=async()=>{
-  if(view==='session'){
-    const has=live.exercises.some(e=>e.sets.some(s=>s.reps||s.peso));
-    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
-    clearInterval(tick);
-    await cleanupAdhoc();
-    view='home';
-  }else if(view==='msession'){
-    const has=liveM&&liveM.exercises.some(e=>e.done);
-    if(has&&!await ask('Sair sem salvar?','O treino em andamento será perdido.','Sair',true))return;
-    clearInterval(tickM);
-    await cleanupAdhoc();
+  if(view==='session'||view==='msession'){
+    if(!await leaveSession())return;
     view='home';
   }else if(view==='arc'||view==='order'||view==='goals'||view==='wlib'||view==='wlibm'||
     view==='rep'||view==='runrep'||view==='moborep'){

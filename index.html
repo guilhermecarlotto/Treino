@@ -51,7 +51,18 @@ html[data-theme="neon"]{
   --bg-blur:rgba(11,11,11,.92); --surface-blur:rgba(21,21,21,.96);
   --radius:14px; color-scheme:dark;
 }
-html.light{
+html[data-theme="lima"]{
+  --bg:#121214; --surface:#1e1e22; --surface2:#27272c; --surface3:#303037; --line:#2e2e35;
+  --txt:#f1f1f3; --dim:#8e9099; --accent:#ccff00; --acc-rgb:204,255,0; --on-accent:#10150a; --accent2:#3ddc97;
+  --bg-blur:rgba(18,18,20,.92); --surface-blur:rgba(30,30,34,.96);
+  --radius:14px; color-scheme:dark;
+}
+html[data-theme="brasa"]{
+  --bg:#0f1115; --surface:#181b20; --surface2:#212631; --surface3:#2b3242; --line:#2a313f;
+  --txt:#eef0f4; --dim:#8893a8; --accent:#ff5500; --acc-rgb:255,85,0; --on-accent:#ffffff; --accent2:#3ddc97;
+  --bg-blur:rgba(15,17,21,.92); --surface-blur:rgba(24,27,32,.96);
+  --radius:14px; color-scheme:dark;
+}
   --bg:#f4f5f8; --surface:#ffffff; --surface2:#eef0f5; --surface3:#ffffff; --line:#e0e3ec;
   --txt:#1a1c24; --dim:#666c80;
   --accent:#ff6b35; --acc-rgb:255,107,53; --on-accent:#ffffff;
@@ -764,7 +775,9 @@ const THEMES=[ // [chave, nome, descrição, fundo, cartão, destaque] — cores
   ['ambar','Grafite e âmbar','Tipo visão noturna','#101114','#1a1c20','#ffb300'],
   ['marinho','Marinho e dourado','Institucional','#0a1020','#121a2e','#d4af37'],
   ['neon','Preto e ciano','Minimalista com neon','#0b0b0b','#151515','#00e5ff'],
-  ['light','Modo claro','Fundo claro e laranja','#f4f5f8','#ffffff','#ff6b35'],
+  ['lima','Grafite e lima','Verde lima elétrico, estilo fitness','#121214','#1e1e22','#ccff00'],
+  ['brasa','Brasa e vermelho','Azul-petróleo escuro com laranja forte','#0f1115','#181b20','#ff5500'],
+
 ];
 let theme='padrao';
 try{ const t=localStorage.getItem('theme'); if(t&&THEMES.some(x=>x[0]===t))theme=t; }catch(e){}
